@@ -1,0 +1,36 @@
+{
+  "name": "ca-agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Costa Apps PoC Agent Runtime",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/database/migrate.ts"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.17.2",
+    "dotenv": "^16.6.1",
+    "drizzle-orm": "^0.44.5",
+    "express": "^5.1.0",
+    "mysql2": "^3.14.3",
+    "zod": "^4.6.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "drizzle-kit": "^0.31.4",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

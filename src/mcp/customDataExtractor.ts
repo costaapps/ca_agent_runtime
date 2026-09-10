@@ -1,0 +1,44 @@
+import type { MCPToolCustomDataExtractor } from '@openai/agents';
+import { RuntimeError } from '../errors/RuntimeError.js';
+import { ErrorCodes } from '../errors/errorCodes.js';
+import type { RuntimeContextData } from '../runtime/RuntimeContext.js';
+import { mergeResolved } from '../runtime/ResolvedContext.js';
+import { McpObservabilityRegistry, ToolCallTracker } from './observability.js';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function resolvedFromMeta(resultMeta: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!resultMeta || resultMeta.ca === undefined) return undefined;
+  if (!isRecord(resultMeta.ca)) throw new RuntimeError(ErrorCodes.InvalidMcpMetadata, 'MCP result _meta.ca inválido.');
+  if (resultMeta.ca.Resolved === undefined) return undefined;
+  if (!isRecord(resultMeta.ca.Resolved)) {
+    throw new RuntimeError(ErrorCodes.InvalidMcpMetadata, 'MCP result _meta.ca.Resolved inválido.');
+  }
+  return resultMeta.ca.Resolved;
+}
+
+export function createCustomDataExtractor(
+  observability: McpObservabilityRegistry,
+  tracker = new ToolCallTracker(),
+): MCPToolCustomDataExtractor<RuntimeContextData> {
+  return async ({ runContext, toolName, resultMeta, structuredContent, isError, toolOutput }) => {
+    const context = runContext.context as RuntimeContextData;
+    const durationMs = tracker.end(context, toolName);
+    const output = { structuredContent, resultMeta, isError: isError ?? false, toolOutput };
+    const logger = observability.getLogger(context);
+    if (logger) {
+      await logger.toolResult(toolName, output, durationMs, isError ? 'ERROR' : 'COMPLETED', isError ? 'MCP tool retornou erro.' : undefined);
+    }
+
+    const patch = resolvedFromMeta(resultMeta);
+    if (patch) mergeResolved(context, patch);
+
+    if (isError) {
+      throw new RuntimeError(ErrorCodes.McpToolError, `MCP tool '${toolName}' retornou erro.`);
+    }
+
+    return patch ? { ca: { Resolved: patch } } : undefined;
+  };
+}

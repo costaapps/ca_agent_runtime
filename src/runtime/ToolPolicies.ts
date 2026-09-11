@@ -19,6 +19,26 @@ export const ToolPolicies: Readonly<Record<string, ToolPolicy>> = {
     requires: ['Execution.IdProcessLine'],
     meta: ['Execution.IdProcessLine'],
   },
+  get_products: {
+    allowedAgents: ['SalesAgent'],
+    requires: ['Execution.IdCompany'],
+    meta: ['Execution.IdCompany'],
+  },
+  get_pricelists: {
+    allowedAgents: ['SalesAgent'],
+    requires: ['Execution.IdCompany'],
+    meta: ['Execution.IdCompany'],
+  },
+  resolve_product: {
+    allowedAgents: ['SalesAgent'],
+    requires: ['Execution.IdCompany'],
+    meta: ['Execution.IdCompany'],
+  },
+  get_products_pricelists: {
+    allowedAgents: ['SalesAgent'],
+    requires: ['Execution.IdCompany', 'Resolved.IdItem'],
+    meta: ['Execution.IdCompany', 'Resolved.IdItem'],
+  },
 };
 
 export function getToolPolicy(toolName: string): ToolPolicy | undefined {

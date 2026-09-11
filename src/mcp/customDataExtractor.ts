@@ -23,10 +23,21 @@ export function createCustomDataExtractor(
   observability: McpObservabilityRegistry,
   tracker = new ToolCallTracker(),
 ): MCPToolCustomDataExtractor<RuntimeContextData> {
-  return async ({ runContext, toolName, resultMeta, structuredContent, isError, toolOutput }) => {
+  return async ({ runContext, serverName, toolName, resultMeta, structuredContent, isError, toolOutput }) => {
     const context = runContext.context as RuntimeContextData;
     const durationMs = tracker.end(context, toolName);
     const output = { structuredContent, resultMeta, isError: isError ?? false, toolOutput };
+    const resolved = resultMeta?.ca;
+    console.info(JSON.stringify({
+      Event: 'MCP_TOOL_RESULT_AFTER',
+      ExecutionUUID: context.Execution.ExecutionUUID,
+      ToolName: toolName,
+      ServerName: serverName,
+      Status: isError ? 'ERROR' : 'COMPLETED',
+      DurationMs: durationMs,
+      HasStructuredContent: structuredContent !== undefined,
+      ResolvedKeys: isRecord(resolved) && isRecord(resolved.Resolved) ? Object.keys(resolved.Resolved) : [],
+    }));
     const logger = observability.getLogger(context);
     if (logger) {
       await logger.toolResult(toolName, output, durationMs, isError ? 'ERROR' : 'COMPLETED', isError ? 'MCP tool retornou erro.' : undefined);

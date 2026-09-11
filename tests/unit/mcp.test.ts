@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RunContext } from '@openai/agents';
 import { createRuntimeContext } from '../../src/runtime/RuntimeContext.js';
 import { McpObservabilityRegistry, ToolCallTracker } from '../../src/mcp/observability.js';
@@ -54,5 +54,97 @@ describe('MCP context integration', () => {
       runContext: new RunContext(context), serverName: 'fake', toolName: 'get_chat_history', toolDisplayName: 'get_chat_history',
       arguments: {}, resultMeta: { ca: { Resolved: { IdDocument: 999 } } }, structuredContent: {}, isError: false, toolOutput: {},
     })).rejects.toThrow('Resolved context');
+  });
+
+  it('resolves metadata for the product tool chain without leaking the full context', async () => {
+    const context = makeContext();
+    const registry = new McpObservabilityRegistry();
+    const tracker = new ToolCallTracker();
+    const resolver = createToolMetaResolver(registry, tracker);
+    const runContext = new RunContext(context);
+
+    await expect(resolver({ runContext, serverName: 'fake', toolName: 'get_products', arguments: { ItemName: 'carro' } }))
+      .resolves.toEqual({ ca: { Execution: { IdCompany: 1003 } } });
+    await expect(resolver({ runContext, serverName: 'fake', toolName: 'get_pricelists', arguments: {} }))
+      .resolves.toEqual({ ca: { Execution: { IdCompany: 1003 } } });
+    await expect(resolver({ runContext, serverName: 'fake', toolName: 'resolve_product', arguments: { IdItem: 10 } }))
+      .resolves.toEqual({ ca: { Execution: { IdCompany: 1003 } } });
+    await expect(resolver({ runContext, serverName: 'fake', toolName: 'get_products_pricelists', arguments: {} }))
+      .rejects.toThrow('Resolved.IdItem');
+
+    context.Resolved.IdItem = 10;
+    await expect(resolver({ runContext, serverName: 'fake', toolName: 'get_products_pricelists', arguments: {} }))
+      .resolves.toEqual({ ca: { Execution: { IdCompany: 1003 }, Resolved: { IdItem: 10 } } });
+  });
+
+  it('merges Resolved only from MCP metadata and never from product results', async () => {
+    const context = makeContext();
+    const registry = new McpObservabilityRegistry();
+    const tracker = new ToolCallTracker();
+    const extractor = createCustomDataExtractor(registry, tracker);
+    const runContext = new RunContext(context);
+
+    await extractor({
+      runContext,
+      serverName: 'fake',
+      toolName: 'get_products',
+      toolDisplayName: 'get_products',
+      arguments: { ItemName: 'carro' },
+      resultMeta: undefined,
+      structuredContent: { Products: [{ IdItem: 10, ItemName: 'Carro' }] },
+      isError: false,
+      toolOutput: { Products: [{ IdItem: 10, ItemName: 'Carro' }] },
+    });
+    expect(context.Resolved).toEqual({});
+
+    await extractor({
+      runContext,
+      serverName: 'fake',
+      toolName: 'resolve_product',
+      toolDisplayName: 'resolve_product',
+      arguments: { IdItem: 10 },
+      resultMeta: { ca: { Resolved: { IdItem: 10 } } },
+      structuredContent: { Product: { IdItem: 10 } },
+      isError: false,
+      toolOutput: { Product: { IdItem: 10 } },
+    });
+    expect(context.Resolved).toEqual({ IdItem: 10 });
+  });
+
+  it('logs MCP before and after events for the product flow', async () => {
+    const context = makeContext();
+    const repository = new MemoryRepository();
+    const logger = new ExecutionLogger(repository, 1);
+    const registry = new McpObservabilityRegistry();
+    registry.register(context, logger);
+    const tracker = new ToolCallTracker();
+    const resolver = createToolMetaResolver(registry, tracker);
+    const extractor = createCustomDataExtractor(registry, tracker);
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    let calls: unknown[][] = [];
+
+    try {
+      const runContext = new RunContext(context);
+      await resolver({ runContext, serverName: 'fake', toolName: 'resolve_product', arguments: { IdItem: 10 } });
+      await extractor({
+        runContext,
+        serverName: 'fake',
+        toolName: 'resolve_product',
+        toolDisplayName: 'resolve_product',
+        arguments: { IdItem: 10 },
+        resultMeta: { ca: { Resolved: { IdItem: 10 } } },
+        structuredContent: { Product: { IdItem: 10 } },
+        isError: false,
+        toolOutput: { Product: { IdItem: 10 } },
+      });
+      calls = info.mock.calls.map((call) => [...call]);
+    } finally {
+      info.mockRestore();
+    }
+
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(String(calls[0]?.[0]))).toMatchObject({ Event: 'MCP_TOOL_CALL_BEFORE', ToolName: 'resolve_product' });
+    expect(JSON.parse(String(calls[1]?.[0]))).toMatchObject({ Event: 'MCP_TOOL_RESULT_AFTER', ToolName: 'resolve_product' });
+    expect(repository.logs.map((entry) => entry.data.EventType)).toEqual(['MCP_TOOL_CALL', 'MCP_TOOL_RESULT']);
   });
 });

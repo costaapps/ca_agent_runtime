@@ -10,7 +10,7 @@ export function createToolMetaResolver(
   observability: McpObservabilityRegistry,
   tracker = new ToolCallTracker(),
 ): MCPToolMetaResolver<RuntimeContextData> {
-  return async ({ runContext, toolName, arguments: toolArguments }) => {
+  return async ({ runContext, serverName, toolName, arguments: toolArguments }) => {
     const context = runContext.context as RuntimeContextData;
     const policy = getToolPolicy(toolName);
     if (!policy) {
@@ -31,6 +31,14 @@ export function createToolMetaResolver(
     if (logger) {
       await logger.toolCall(toolName, { Arguments: toolArguments ?? {}, Meta: meta });
     }
+    console.info(JSON.stringify({
+      Event: 'MCP_TOOL_CALL_BEFORE',
+      ExecutionUUID: context.Execution.ExecutionUUID,
+      ToolName: toolName,
+      ServerName: serverName,
+      ArgumentKeys: Object.keys(toolArguments ?? {}),
+      MetadataPaths: policy.meta,
+    }));
     return meta;
   };
 }

@@ -39,6 +39,21 @@ export const ToolPolicies: Readonly<Record<string, ToolPolicy>> = {
     requires: ['Execution.IdCompany', 'Resolved.IdItem'],
     meta: ['Execution.IdCompany', 'Resolved.IdItem'],
   },
+  list_flow_actions: {
+    allowedAgents: ['FlowAgent'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+  },
+  describe_flow_action: {
+    allowedAgents: ['FlowAgent'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+  },
+  execute_flow_action: {
+    allowedAgents: ['FlowAgent'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+  },
 };
 
 export function getToolPolicy(toolName: string): ToolPolicy | undefined {

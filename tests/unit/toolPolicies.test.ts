@@ -50,4 +50,20 @@ describe('ToolPolicies', () => {
     expect(before).toBe(false);
     expect(after).toBe(true);
   });
+
+  it('allows Flow tools only to FlowAgent and requires the AIDocument execution context', async () => {
+    const flowContext = {
+      Execution: { ...context.Execution, TurnUUID: '14ed24ea-0000-4000-8000-000000000001' },
+      Resolved: {},
+    };
+    for (const toolName of ['list_flow_actions', 'describe_flow_action', 'execute_flow_action']) {
+      expect(isToolAvailable(toolName, 'FlowAgent', flowContext)).toBe(true);
+      expect(isToolAvailable(toolName, 'SalesAgent', flowContext)).toBe(false);
+      expect(isToolAvailable(toolName, 'SupportAgent', flowContext)).toBe(false);
+      expect(isToolAvailable(toolName, 'ChatOrchestrator', flowContext)).toBe(false);
+    }
+    const resolver = (await import('../../src/mcp/toolMetaResolver.js')).createToolMetaResolver(new (await import('../../src/mcp/observability.js')).McpObservabilityRegistry());
+    const meta = await resolver({ runContext: new RunContext(flowContext), serverName: 'fake', toolName: 'list_flow_actions', arguments: {} });
+    expect(meta).toEqual({ ca: { Execution: { ExecutionUUID: 'uuid', TurnUUID: '14ed24ea-0000-4000-8000-000000000001', IdCompany: 1003, IdProcessLine: 456 } } });
+  });
 });

@@ -3,7 +3,7 @@ import type { AgentRuntime } from './runtime/AgentRuntime.js';
 import { createAgentRoutes } from './api/routes/agentRoutes.js';
 import { createHealthRoutes } from './api/routes/healthRoutes.js';
 
-export function createApp(runtime: Pick<AgentRuntime, 'run'>): Express {
+export function createApp(runtime: Parameters<typeof createAgentRoutes>[0]): Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   app.use(createHealthRoutes());

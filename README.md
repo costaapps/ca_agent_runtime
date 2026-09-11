@@ -45,7 +45,7 @@ npm run db:migrate
 }
 ```
 
-Sucesso:
+Sucesso legado:
 
 ```json
 {
@@ -53,6 +53,27 @@ Sucesso:
   "ExecutionUUID": "uuid-v4",
   "Output": { "Intent": "SALES" }
 }
+```
+
+`POST /v1/agent-turns` inicia um turno AIDocument e reutiliza a Session persistida por `IdCompany + IdProcessLine`:
+
+```json
+{
+  "TurnUUID": "14ed24ea-0000-4000-8000-000000000001",
+  "Agent": "sales-agent",
+  "IdCompany": 1003,
+  "IdChat": 123,
+  "IdProcessLine": 456,
+  "Messages": [{ "IdMessage": 1001, "Text": "Quero comprar uma impressora" }]
+}
+```
+
+O Runtime cria `ExecutionUUID`, mantém a memória nativa do Agents SDK em `AIAgentSessionItem`, e devolve `Response` + `Control`. Repetições do mesmo `TurnUUID` são idempotentes.
+
+`POST /v1/agent-sessions/close` fecha a Session após confirmação do Core:
+
+```json
+{ "IdCompany": 1003, "IdProcessLine": 456, "Reason": "PROCESS_LINE_CLOSED" }
 ```
 
 ## Arquitetura operacional

@@ -1,22 +1,30 @@
 import { randomUUID } from 'node:crypto';
-import type { MCPServer } from '@openai/agents';
+import type { AgentInputItem, MCPServer } from '@openai/agents';
 import type { AgentRunInput } from '../api/contracts/agentRunInput.js';
 import type { AgentRunOutput, AgentRunSuccess } from '../api/contracts/agentRunOutput.js';
-import { AgentNotFoundError, asRuntimeError } from '../errors/RuntimeError.js';
+import type { AgentSessionCloseInput, AgentSessionCloseOutput } from '../api/contracts/agentSessionClose.js';
+import type { AgentTurnInput } from '../api/contracts/agentTurnInput.js';
+import { AIDocumentRootOutputSchema, type AgentTurnFailure, type AgentTurnOutput, type AgentTurnSuccess } from '../api/contracts/agentTurnOutput.js';
+import { AgentNotFoundError, RuntimeError, asRuntimeError } from '../errors/RuntimeError.js';
 import { ErrorCodes } from '../errors/errorCodes.js';
 import { AgentRegistry, type AgentGraph } from '../agents/AgentRegistry.js';
 import type { NewAIAgentExecution } from '../database/schema/aiAgentExecution.js';
 import type { AiExecutionRepository } from '../database/repositories/aiExecutionRepository.js';
+import type { AgentSessionRecord, AgentSessionRepository, StoredTurnExecution } from '../database/repositories/aiSessionRepository.js';
 import { ExecutionLogger } from '../tracing/ExecutionLogger.js';
-import { createRuntimeContext } from './RuntimeContext.js';
+import { createAIDocumentRuntimeContext, createRuntimeContext } from './RuntimeContext.js';
 import { compileExpectedOutput } from './ExpectedOutputCompiler.js';
 import { resolveOutput } from './OutputResolver.js';
 import { createOpenAITraceId, type TraceSettings } from '../openai/tracing.js';
 import type { OpenAIRunner } from '../openai/runner.js';
 import { McpObservabilityRegistry } from '../mcp/observability.js';
+import { DatabaseAgentSession } from '../session/DatabaseAgentSession.js';
+import { hashTurnPayload } from './TurnIdentity.js';
+import { SessionMutex } from './SessionMutex.js';
 
 export interface AgentRuntimeOptions {
   repository: AiExecutionRepository;
+  sessionRepository?: AgentSessionRepository;
   registry: AgentRegistry;
   runner: OpenAIRunner;
   mcpServer: MCPServer;
@@ -25,6 +33,7 @@ export interface AgentRuntimeOptions {
   tracingEnabled: boolean;
   traceIncludeSensitiveData: boolean;
   mcpServerName?: string;
+  sessionMutex?: SessionMutex;
 }
 
 export interface AgentRuntimeRunResult {
@@ -32,13 +41,21 @@ export interface AgentRuntimeRunResult {
   response: AgentRunOutput;
 }
 
-function json(value: unknown): string {
-  return JSON.stringify(value);
+export interface AgentTurnRuntimeResult {
+  statusCode: 200 | 409 | 422 | 500;
+  response: AgentTurnOutput;
 }
 
-function durationSince(startedAt: number): number {
-  return Math.max(0, Date.now() - startedAt);
+export interface AgentSessionCloseRuntimeResult {
+  statusCode: 200 | 404 | 500;
+  response: AgentSessionCloseOutput | {
+    Success: false;
+    Error: { Code: string; Message: string };
+  };
 }
+
+function json(value: unknown): string { return JSON.stringify(value); }
+function durationSince(startedAt: number): number { return Math.max(0, Date.now() - startedAt); }
 
 function attachAgentLifecycleLogging(graph: AgentGraph, logger: ExecutionLogger): void {
   for (const agent of graph.agents) {
@@ -48,8 +65,40 @@ function attachAgentLifecycleLogging(graph: AgentGraph, logger: ExecutionLogger)
   }
 }
 
+function turnInputItems(input: AgentTurnInput): AgentInputItem[] {
+  return input.Messages.map((message) => ({ role: 'user', content: message.Text }));
+}
+
+function turnFailure(
+  input: AgentTurnInput,
+  code: string,
+  message: string,
+  sessionUUID?: string,
+  executionUUID?: string,
+): AgentTurnRuntimeResult {
+  const response: AgentTurnFailure = {
+    Success: false,
+    TurnUUID: input.TurnUUID,
+    ...(sessionUUID ? { SessionUUID: sessionUUID } : {}),
+    ...(executionUUID ? { ExecutionUUID: executionUUID } : {}),
+    Error: { Code: code, Message: message },
+  };
+  const statusCode = code === ErrorCodes.AgentNotFound ? 422 : code === ErrorCodes.TurnIdempotencyConflict || code === ErrorCodes.TurnInProgress || code === ErrorCodes.AgentSessionClosed ? 409 : 500;
+  return { statusCode, response };
+}
+
+function parseStoredOutput(outputJSON: string | null): ReturnType<typeof AIDocumentRootOutputSchema.parse> | undefined {
+  if (!outputJSON) return undefined;
+  try { return AIDocumentRootOutputSchema.parse(JSON.parse(outputJSON)); } catch { return undefined; }
+}
+
 export class AgentRuntime {
-  constructor(private readonly options: AgentRuntimeOptions) {}
+  private readonly sessionMutex: SessionMutex;
+  private readonly activeTurns = new Map<string, string>();
+
+  constructor(private readonly options: AgentRuntimeOptions) {
+    this.sessionMutex = options.sessionMutex ?? new SessionMutex();
+  }
 
   async run(input: AgentRunInput): Promise<AgentRuntimeRunResult> {
     if (!this.options.registry.has(input.Agent)) throw new AgentNotFoundError(input.Agent);
@@ -57,13 +106,7 @@ export class AgentRuntime {
     const executionUUID = randomUUID();
     const openAITraceId = createOpenAITraceId();
     const startedAt = Date.now();
-    const startedDate = new Date(startedAt);
-    const runtimeConfig = {
-      Model: this.options.model,
-      MCPServer: this.options.mcpServerName ?? 'msg4-mcp',
-      TracingEnabled: this.options.tracingEnabled,
-    };
-
+    const runtimeConfig = { Model: this.options.model, MCPServer: this.options.mcpServerName ?? 'msg4-mcp', TracingEnabled: this.options.tracingEnabled };
     const execution: NewAIAgentExecution = {
       ExecutionUUID: executionUUID,
       IdCompany: input.IdCompany,
@@ -76,20 +119,16 @@ export class AgentRuntime {
       RuntimeConfigJSON: json(runtimeConfig),
       Success: 'N',
       OpenAITraceId: openAITraceId,
-      StartedAt: startedDate,
+      StartedAt: new Date(startedAt),
     };
 
     let executionId: number;
-    try {
-      executionId = await this.options.repository.createExecution(execution);
-    } catch (error) {
-      throw asRuntimeError(error, ErrorCodes.PersistenceError);
-    }
+    try { executionId = await this.options.repository.createExecution(execution); }
+    catch (error) { throw asRuntimeError(error, ErrorCodes.PersistenceError); }
 
     const logger = new ExecutionLogger(this.options.repository, executionId);
     const context = createRuntimeContext(input, executionUUID);
     this.options.observability.register(context, logger);
-
     try {
       await logger.runtimeStart();
       const compiled = compileExpectedOutput(input.ExpectedOutput);
@@ -102,13 +141,13 @@ export class AgentRuntime {
         logger,
       });
       attachAgentLifecycleLogging(graph, logger);
-
       const traceSettings: TraceSettings = {
         enabled: this.options.tracingEnabled,
         includeSensitiveData: this.options.traceIncludeSensitiveData,
         model: this.options.model,
         executionUUID,
         idChat: input.IdChat,
+        idProcessLine: input.IdProcessLine,
         idProcessLineFlow: input.IdProcessLineFlow,
         traceId: openAITraceId,
       };
@@ -116,53 +155,157 @@ export class AgentRuntime {
       const output = resolveOutput(result.finalOutput, compiled);
       const finalAgent = result.lastAgent?.name ?? 'ChatOrchestrator';
       await logger.agentOutput(finalAgent, output);
-
       const durationMs = durationSince(startedAt);
-      await this.options.repository.finishExecution(executionId, {
-        FinalAgent: finalAgent,
-        Success: 'Y',
-        OutputJSON: json(output),
-        FinishedAt: new Date(),
-        DurationMs: durationMs,
-      });
+      await this.options.repository.finishExecution(executionId, { FinalAgent: finalAgent, Success: 'Y', OutputJSON: json(output), FinishedAt: new Date(), DurationMs: durationMs });
       await logger.runtimeEnd(durationMs);
-      return {
-        statusCode: 200,
-        response: { Success: true, ExecutionUUID: executionUUID, Output: output } satisfies AgentRunSuccess,
-      };
+      return { statusCode: 200, response: { Success: true, ExecutionUUID: executionUUID, Output: output } satisfies AgentRunSuccess };
     } catch (error) {
       const runtimeError = asRuntimeError(error);
       const durationMs = durationSince(startedAt);
-      try {
-        await logger.runtimeError(runtimeError.code, runtimeError.message, durationMs);
-      } catch {
-        // A logging failure must not hide the original execution failure.
-      }
-      try {
-        await this.options.repository.failExecution(executionId, {
-          Success: 'N',
-          ErrorCode: runtimeError.code,
-          ErrorMessage: runtimeError.message,
-          FinishedAt: new Date(),
-          DurationMs: durationMs,
-        });
-      } catch {
-        // The response still carries the execution UUID for operational recovery.
-      }
-      return {
-        statusCode: 500,
-        response: {
-          Success: false,
-          ExecutionUUID: executionUUID,
-          Output: null,
-          Error: {
-            Code: runtimeError.code,
-            Message: 'Não foi possível concluir a execução.',
-          },
-        },
-      };
+      try { await logger.runtimeError(runtimeError.code, runtimeError.message, durationMs); } catch { /* preserve original */ }
+      try { await this.options.repository.failExecution(executionId, { Success: 'N', ErrorCode: runtimeError.code, ErrorMessage: runtimeError.message, FinishedAt: new Date(), DurationMs: durationMs }); } catch { /* preserve original */ }
+      return { statusCode: 500, response: { Success: false, ExecutionUUID: executionUUID, Output: null, Error: { Code: runtimeError.code, Message: 'Não foi possível concluir a execução.' } } };
     } finally {
       this.options.observability.unregister(context);
     }
   }
+
+  async runTurn(input: AgentTurnInput): Promise<AgentTurnRuntimeResult> {
+    const sessionRepository = this.options.sessionRepository;
+    if (!sessionRepository) return turnFailure(input, ErrorCodes.PersistenceError, 'Persistência de Session não configurada.');
+    const payloadHash = hashTurnPayload(input);
+    const activeHash = this.activeTurns.get(input.TurnUUID);
+    if (activeHash) {
+      return activeHash === payloadHash
+        ? turnFailure(input, ErrorCodes.TurnInProgress, 'O Turn ainda está em execução.')
+        : turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.');
+    }
+    this.activeTurns.set(input.TurnUUID, payloadHash);
+    const lockKey = `${input.IdCompany}:${input.IdProcessLine}`;
+    try {
+      return await this.sessionMutex.runExclusive(lockKey, async () => this.runTurnLocked(input, sessionRepository));
+    } finally {
+      this.activeTurns.delete(input.TurnUUID);
+    }
+  }
+
+  async closeSession(input: AgentSessionCloseInput): Promise<AgentSessionCloseRuntimeResult> {
+    const sessionRepository = this.options.sessionRepository;
+    if (!sessionRepository) return { statusCode: 500, response: { Success: false, Error: { Code: ErrorCodes.PersistenceError, Message: 'Persistência de Session não configurada.' } } };
+    const lockKey = `${input.IdCompany}:${input.IdProcessLine}`;
+    return this.sessionMutex.runExclusive(lockKey, async () => {
+      try {
+        const session = await sessionRepository.closeSession(input.IdCompany, input.IdProcessLine);
+        if (!session) return { statusCode: 404, response: { Success: false, Error: { Code: ErrorCodes.AgentSessionNotFound, Message: 'Session não encontrada.' } } };
+        return { statusCode: 200, response: { Success: true, SessionUUID: session.SessionUUID, Status: 'CLOSED' } satisfies AgentSessionCloseOutput };
+      } catch (error) {
+        const runtimeError = asRuntimeError(error, ErrorCodes.PersistenceError);
+        return { statusCode: 500, response: { Success: false, Error: { Code: runtimeError.code, Message: runtimeError.message } } };
+      }
+    });
+  }
+
+  private async runTurnLocked(input: AgentTurnInput, sessionRepository: AgentSessionRepository): Promise<AgentTurnRuntimeResult> {
+    let session: AgentSessionRecord | undefined;
+    try {
+      session = await sessionRepository.findByProcessLine(input.IdCompany, input.IdProcessLine);
+      if (!session) {
+        if (!this.options.registry.hasAIDocument(input.Agent)) return turnFailure(input, ErrorCodes.AgentNotFound, `Agent '${input.Agent}' não encontrado.`);
+        const now = new Date();
+        session = await sessionRepository.createSession({ SessionUUID: randomUUID(), IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, RootAgent: input.Agent, Status: 'OPEN', StartedAt: now, LastActivityAt: now, ClosedAt: null });
+      }
+      if (session.Status === 'CLOSED') return turnFailure(input, ErrorCodes.AgentSessionClosed, 'A Session do AIDocument está fechada.', session.SessionUUID);
+
+      const payloadHash = hashTurnPayload(input);
+      const existing = await sessionRepository.findExecutionByTurn(input.TurnUUID);
+      if (existing) return this.resolveExistingTurn(input, session, existing, payloadHash);
+
+      const executionUUID = randomUUID();
+      const openAITraceId = createOpenAITraceId();
+      const startedAt = Date.now();
+      const execution: NewAIAgentExecution = {
+        ExecutionUUID: executionUUID,
+        IdCompany: input.IdCompany,
+        IdChat: input.IdChat,
+        IdProcessLine: input.IdProcessLine,
+        IdProcessLineFlow: null,
+        IdAIAgentSession: session.IdAIAgentSession,
+        TurnUUID: input.TurnUUID,
+        TurnInputJSON: canonicalTurnInput(input),
+        TurnPayloadHash: payloadHash,
+        RequestedAgent: session.RootAgent,
+        Message: input.Messages.map((message) => message.Text).join('\n'),
+        ExpectedOutputJSON: null,
+        RuntimeConfigJSON: json({ Model: this.options.model, MCPServer: this.options.mcpServerName ?? 'msg4-mcp', Mode: 'AIDocument' }),
+        Success: 'N',
+        OpenAITraceId: openAITraceId,
+        StartedAt: new Date(startedAt),
+      };
+      const executionId = await this.options.repository.createExecution(execution);
+      const logger = new ExecutionLogger(this.options.repository, executionId);
+      const context = createAIDocumentRuntimeContext(input, executionUUID, session.SessionUUID);
+      this.options.observability.register(context, logger);
+      try {
+        await logger.runtimeStart();
+        const graph = this.options.registry.buildAIDocument(session.RootAgent, { mcpServer: this.options.mcpServer, model: this.options.model, runtimeContext: context, logger });
+        for (const agent of graph.agents) {
+          agent.on('agent_start', (_runContext, startedAgent) => { void logger.agentStart(startedAgent.name).catch(() => undefined); });
+        }
+        const traceSettings: TraceSettings = {
+          enabled: this.options.tracingEnabled,
+          includeSensitiveData: this.options.traceIncludeSensitiveData,
+          model: this.options.model,
+          executionUUID,
+          idChat: input.IdChat,
+          idProcessLine: input.IdProcessLine,
+          idProcessLineFlow: null,
+          sessionUUID: session.SessionUUID,
+          turnUUID: input.TurnUUID,
+          rootAgent: session.RootAgent,
+          traceId: openAITraceId,
+        };
+        const result = await this.options.runner.run(graph.root, turnInputItems(input), context, traceSettings, new DatabaseAgentSession(session.SessionUUID, sessionRepository, executionUUID));
+        let output;
+        try {
+          output = AIDocumentRootOutputSchema.parse(result.finalOutput);
+        } catch (error) {
+          throw new RuntimeError(ErrorCodes.InvalidAgentOutput, 'Output do Root Agent AIDocument é inválido.', error);
+        }
+        const finalAgent = result.lastAgent?.name ?? graph.root.name;
+        await logger.agentOutput(finalAgent, output);
+        const durationMs = durationSince(startedAt);
+        await this.options.repository.finishExecution(executionId, { FinalAgent: finalAgent, Success: 'Y', OutputJSON: json(output), FinishedAt: new Date(), DurationMs: durationMs });
+        await sessionRepository.touchSession(session.SessionUUID);
+        await logger.runtimeEnd(durationMs);
+        const response: AgentTurnSuccess = { Success: true, TurnUUID: input.TurnUUID, SessionUUID: session.SessionUUID, ExecutionUUID: executionUUID, Agent: session.RootAgent, Response: output.Response, Control: output.Control };
+        return { statusCode: 200, response };
+      } catch (error) {
+        const runtimeError = asRuntimeError(error, ErrorCodes.AgentExecutionError);
+        const durationMs = durationSince(startedAt);
+        try { await logger.runtimeError(runtimeError.code, runtimeError.message, durationMs); } catch { /* preserve original */ }
+        try { await this.options.repository.failExecution(executionId, { Success: 'N', ErrorCode: runtimeError.code, ErrorMessage: runtimeError.message, FinishedAt: new Date(), DurationMs: durationMs }); } catch { /* preserve original */ }
+        return turnFailure(input, runtimeError.code, runtimeError.message, session.SessionUUID, executionUUID);
+      } finally {
+        this.options.observability.unregister(context);
+      }
+    } catch (error) {
+      const runtimeError = asRuntimeError(error, ErrorCodes.PersistenceError);
+      return turnFailure(input, runtimeError.code, runtimeError.message, session?.SessionUUID);
+    }
+  }
+
+  private resolveExistingTurn(input: AgentTurnInput, session: AgentSessionRecord, existing: StoredTurnExecution, payloadHash: string): AgentTurnRuntimeResult {
+    if (existing.TurnPayloadHash !== payloadHash) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', session.SessionUUID, existing.ExecutionUUID);
+    if (!existing.FinishedAt) return turnFailure(input, ErrorCodes.TurnInProgress, 'O Turn ainda está em execução.', session.SessionUUID, existing.ExecutionUUID);
+    if (existing.Success === 'Y') {
+      const output = parseStoredOutput(existing.OutputJSON);
+      if (!output) return turnFailure(input, ErrorCodes.PersistenceError, 'Output persistido do Turn é inválido.', session.SessionUUID, existing.ExecutionUUID);
+      return { statusCode: 200, response: { Success: true, TurnUUID: input.TurnUUID, SessionUUID: session.SessionUUID, ExecutionUUID: existing.ExecutionUUID, Agent: session.RootAgent, Response: output.Response, Control: output.Control } };
+    }
+    return turnFailure(input, existing.ErrorCode ?? ErrorCodes.AgentRuntimeError, existing.ErrorMessage ?? 'Não foi possível concluir a execução.', session.SessionUUID, existing.ExecutionUUID);
+  }
+}
+
+function canonicalTurnInput(input: AgentTurnInput): string {
+  return JSON.stringify({ TurnUUID: input.TurnUUID, Agent: input.Agent, IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, Messages: input.Messages.map((message) => ({ IdMessage: message.IdMessage, Text: message.Text })) });
 }

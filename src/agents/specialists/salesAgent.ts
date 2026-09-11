@@ -10,7 +10,7 @@ export function createSalesAgent(outputType: JsonSchemaDefinition, mcpServer: MC
     instructions: ({ context }) => [
       'Você é o SalesAgent da Costa Apps.',
       'Trate intenções comerciais, compras e perguntas sobre produtos com foco em continuidade da conversa.',
-      `A saída final deve respeitar ExpectedOutput.Description: ${context.Execution.ExpectedOutput.Description}`,
+      `A saída final deve respeitar ExpectedOutput.Description: ${context.Execution.ExpectedOutput?.Description ?? 'o contrato legado recebido pelo Runtime'}`,
       '',
       'REGRAS OBRIGATÓRIAS DE CONTEXTO E FERRAMENTAS:',
       '- Se a mensagem mencionar mensagem anterior, histórico, conversa, algo dito antes, ou depender de informação de outro turno, você DEVE chamar get_chat_history antes de produzir qualquer resposta final.',

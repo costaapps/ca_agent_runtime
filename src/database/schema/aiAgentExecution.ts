@@ -7,6 +7,10 @@ export const aiAgentExecution = mysqlTable('AIAgentExecution', {
   IdChat: int('IdChat'),
   IdProcessLine: int('IdProcessLine'),
   IdProcessLineFlow: int('IdProcessLineFlow'),
+  IdAIAgentSession: bigint('IdAIAgentSession', { mode: 'number' }),
+  TurnUUID: char('TurnUUID', { length: 36 }).unique('UQ_AIAgentExecution_TurnUUID'),
+  TurnInputJSON: longtext('TurnInputJSON'),
+  TurnPayloadHash: char('TurnPayloadHash', { length: 64 }),
   RequestedAgent: varchar('RequestedAgent', { length: 250 }).notNull(),
   FinalAgent: varchar('FinalAgent', { length: 250 }),
   Message: longtext('Message'),
@@ -24,6 +28,7 @@ export const aiAgentExecution = mysqlTable('AIAgentExecution', {
   processLineFlow: index('IX_AIAgentExecution_ProcessLineFlow').on(table.IdProcessLineFlow),
   chat: index('IX_AIAgentExecution_Chat').on(table.IdChat, table.StartedAt),
   openAITrace: index('IX_AIAgentExecution_OpenAITraceId').on(table.OpenAITraceId),
+  session: index('IX_AIAgentExecution_Session').on(table.IdAIAgentSession),
 }));
 
 export type AIAgentExecution = typeof aiAgentExecution.$inferSelect;

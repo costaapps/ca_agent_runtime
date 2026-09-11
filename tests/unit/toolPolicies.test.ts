@@ -19,6 +19,17 @@ describe('ToolPolicies', () => {
     context.Resolved = {};
     expect(isToolAvailable('get_chat_history', 'SupportAgent', context)).toBe(true);
     expect(isToolAvailable('get_document_lines', 'SupportAgent', context)).toBe(false);
+    expect(isToolAvailable('get_products_pricelists', 'SalesAgent', context)).toBe(false);
+    context.Resolved.IdItem = 10;
+    expect(isToolAvailable('get_products_pricelists', 'SalesAgent', context)).toBe(true);
+  });
+
+  it('exposes all product tools only to SalesAgent', () => {
+    for (const toolName of ['get_products', 'get_pricelists', 'resolve_product', 'get_products_pricelists']) {
+      expect(isToolAvailable(toolName, 'SalesAgent', context)).toBe(true);
+      expect(isToolAvailable(toolName, 'SupportAgent', context)).toBe(false);
+      expect(isToolAvailable(toolName, 'ChatOrchestrator', context)).toBe(false);
+    }
   });
 
   it('implements the SDK callable filter', async () => {
@@ -27,5 +38,16 @@ describe('ToolPolicies', () => {
     const denied = await filter({ runContext: new RunContext(context), agent: { name: 'ChatOrchestrator' } as any, serverName: 'fake' }, { name: 'get_chat_history' } as any);
     expect(allowed).toBe(true);
     expect(denied).toBe(false);
+  });
+
+  it('re-evaluates the resolved product requirement dynamically', async () => {
+    const filter = createToolFilter();
+    context.Resolved = {};
+    const runContext = new RunContext(context);
+    const before = await filter({ runContext, agent: { name: 'SalesAgent' } as any, serverName: 'fake' }, { name: 'get_products_pricelists' } as any);
+    context.Resolved.IdItem = 10;
+    const after = await filter({ runContext, agent: { name: 'SalesAgent' } as any, serverName: 'fake' }, { name: 'get_products_pricelists' } as any);
+    expect(before).toBe(false);
+    expect(after).toBe(true);
   });
 });

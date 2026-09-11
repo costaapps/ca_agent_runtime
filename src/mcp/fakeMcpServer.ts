@@ -7,7 +7,11 @@ type FakeTool = {
   inputSchema: Record<string, unknown>;
 };
 
-export function createFakeMcpServer(): MCPServer {
+export interface FakeMcpServerOptions {
+  executeFlowError?: { Code: string; Message: string };
+}
+
+export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServer {
   const tools: FakeTool[] = [
     {
       name: 'get_chat_history',
@@ -92,6 +96,9 @@ export function createFakeMcpServer(): MCPServer {
     if (toolName === 'get_products_pricelists') return [{ type: 'text', text: JSON.stringify({ ProductsPriceLists: [] }) }];
     if (toolName === 'list_flow_actions') return [{ type: 'text', text: JSON.stringify({ Actions: [{ Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.' }] }) }];
     if (toolName === 'describe_flow_action') return [{ type: 'text', text: JSON.stringify({ Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.', Repeatable: true, Available: true, ExecutionCount: 0, UnavailableReason: null, RequiredInputs: [] }) }];
+    if (toolName === 'execute_flow_action' && options.executeFlowError) {
+      return [{ type: 'text', text: JSON.stringify({ Success: false, Action: 'get_customer_details', Output: null, Error: options.executeFlowError }) }];
+    }
     if (toolName === 'execute_flow_action') return [{ type: 'text', text: JSON.stringify({ Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } }) }];
     return [{ type: 'text', text: JSON.stringify({ Steps: [] }) }];
   };
@@ -106,6 +113,14 @@ export function createFakeMcpServer(): MCPServer {
     async invalidateToolsCache() {},
     callTool,
     async callToolResult(toolName: string) {
+      if (toolName === 'execute_flow_action' && options.executeFlowError) {
+        return {
+          content: await callTool(toolName),
+          structuredContent: { Success: false, Action: 'get_customer_details', Output: null, Error: options.executeFlowError },
+          _meta: { ca: { FlowInvocation: { InvocationUUID: 'fake-invocation-uuid' } } },
+          isError: true,
+        };
+      }
       if (toolName === 'resolve_product') {
         return {
           content: await callTool(toolName),

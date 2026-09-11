@@ -214,11 +214,10 @@ export class AgentRuntime {
         const now = new Date();
         session = await sessionRepository.createSession({ SessionUUID: randomUUID(), IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, RootAgent: input.Agent, Status: 'OPEN', StartedAt: now, LastActivityAt: now, ClosedAt: null });
       }
-      if (session.Status === 'CLOSED') return turnFailure(input, ErrorCodes.AgentSessionClosed, 'A Session do AIDocument está fechada.', session.SessionUUID);
-
       const payloadHash = hashTurnPayload(input);
       const existing = await sessionRepository.findExecutionByTurn(input.TurnUUID);
       if (existing) return this.resolveExistingTurn(input, session, existing, payloadHash);
+      if (session.Status === 'CLOSED') return turnFailure(input, ErrorCodes.AgentSessionClosed, 'A Session do AIDocument está fechada.', session.SessionUUID);
 
       const executionUUID = randomUUID();
       const openAITraceId = createOpenAITraceId();
@@ -247,6 +246,12 @@ export class AgentRuntime {
       this.options.observability.register(context, logger);
       try {
         await logger.runtimeStart();
+        if (input.Agent !== session.RootAgent) {
+          await logger.runtimeWarning(
+            'ROOT_AGENT_FROZEN',
+            `Agent solicitado '${input.Agent}' ignorado; Session permanece em '${session.RootAgent}'.`,
+          );
+        }
         const graph = this.options.registry.buildAIDocument(session.RootAgent, { mcpServer: this.options.mcpServer, model: this.options.model, runtimeContext: context, logger });
         for (const agent of graph.agents) {
           agent.on('agent_start', (_runContext, startedAgent) => { void logger.agentStart(startedAgent.name).catch(() => undefined); });

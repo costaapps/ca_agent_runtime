@@ -22,7 +22,7 @@ export function createOpenAIRunner(): OpenAIRunner {
         traceMetadata: {
           ExecutionUUID: tracing.executionUUID,
           IdProcessLine: String(tracing.idProcessLine),
-          IdProcessLineFlow: String(tracing.idProcessLineFlow),
+          IdProcessLineFlow: tracing.idProcessLineFlow === null ? '' : String(tracing.idProcessLineFlow),
           SessionUUID: tracing.sessionUUID ?? '',
           TurnUUID: tracing.turnUUID ?? '',
           RootAgent: tracing.rootAgent ?? agent.name,

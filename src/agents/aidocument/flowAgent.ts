@@ -10,7 +10,9 @@ export const FlowAgentInputSchema = z.object({
 const FlowResultSchema = z.object({
   Action: z.string(),
   Output: z.unknown().nullable(),
-  Error: z.object({ Code: z.string(), Message: z.string() }).optional(),
+  // Structured outputs must expose every field. A successful capability has
+  // no error, represented explicitly as null so the schema remains strict.
+  Error: z.object({ Code: z.string(), Message: z.string() }).nullable(),
 });
 
 export const FlowAgentOutputSchema = z.object({

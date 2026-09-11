@@ -72,6 +72,7 @@ describe('AIDocument Agent Runtime', () => {
 
     expect(first.response).toMatchObject({ Agent: 'sales-agent', Response: 'SalesAgent' });
     expect(differentAgent.response).toMatchObject({ Agent: 'sales-agent', Response: 'SalesAgent' });
+    expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_WARNING' && entry.data.ErrorMessage?.startsWith('ROOT_AGENT_FROZEN:'))).toBe(true);
     expect(conflict.statusCode).toBe(409);
     expect(conflict.response).toMatchObject({ Success: false, Error: { Code: 'TURN_IDEMPOTENCY_CONFLICT' } });
   });
@@ -97,6 +98,7 @@ describe('AIDocument Agent Runtime', () => {
     ]);
     const closed = await runtime.closeSession({ IdCompany: 1003, IdProcessLine: 456, Reason: 'PROCESS_LINE_CLOSED' });
     const closedAgain = await runtime.closeSession({ IdCompany: 1003, IdProcessLine: 456, Reason: 'PROCESS_LINE_CLOSED' });
+    const retryCompleted = await runtime.runTurn(makeTurn());
     const afterClose = await runtime.runTurn(makeTurn({ TurnUUID: '14ed24ea-0000-4000-8000-000000000003' }));
 
     expect(first.statusCode).toBe(200);
@@ -104,6 +106,7 @@ describe('AIDocument Agent Runtime', () => {
     expect(maximum).toBe(1);
     expect(closed).toMatchObject({ statusCode: 200, response: { Success: true, Status: 'CLOSED' } });
     expect(closedAgain).toEqual(closed);
+    expect(retryCompleted).toMatchObject({ statusCode: 200, response: { Success: true } });
     expect(afterClose).toMatchObject({ statusCode: 409, response: { Success: false, Error: { Code: 'AGENT_SESSION_CLOSED' } } });
   });
 

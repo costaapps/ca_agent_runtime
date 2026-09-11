@@ -16,7 +16,7 @@ describe('AIDocument contracts', () => {
 
   it('validates FlowAgent Task + optional Context and result statuses', () => {
     expect(FlowAgentInputSchema.parse({ Task: 'Consultar pedidos', Context: 'Cliente atual' })).toEqual({ Task: 'Consultar pedidos', Context: 'Cliente atual' });
-    expect(FlowAgentOutputSchema.parse({ Status: 'COMPLETED', Summary: 'Concluído', Results: [{ Action: 'x', Output: { Id: 1 } }], MissingInformation: [] })).toMatchObject({ Status: 'COMPLETED' });
+    expect(FlowAgentOutputSchema.parse({ Status: 'COMPLETED', Summary: 'Concluído', Results: [{ Action: 'x', Output: { Id: 1 }, Error: null }], MissingInformation: [] })).toMatchObject({ Status: 'COMPLETED' });
   });
 
   it('registers the AIDocument Root Agent keys separately from the legacy graph', () => {

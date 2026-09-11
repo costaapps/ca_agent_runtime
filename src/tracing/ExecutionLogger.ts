@@ -74,6 +74,13 @@ export class ExecutionLogger {
     return this.append(ExecutionEventTypes.RuntimeEnd, { Status: 'COMPLETED', DurationMs: durationMs });
   }
 
+  runtimeWarning(code: string, warningMessage: string): Promise<void> {
+    return this.append(ExecutionEventTypes.RuntimeWarning, {
+      Status: 'WARNING',
+      ErrorMessage: `${code}: ${warningMessage}`,
+    });
+  }
+
   runtimeError(errorCode: string, errorMessage: string, durationMs: number): Promise<void> {
     return this.append(ExecutionEventTypes.RuntimeError, {
       Status: 'ERROR',

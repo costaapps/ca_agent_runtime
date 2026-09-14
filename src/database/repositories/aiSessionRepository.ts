@@ -22,6 +22,8 @@ export interface StoredTurnExecution {
   IdAIAgentExecution: number;
   ExecutionUUID: string;
   TurnUUID: string;
+  SessionUUID: string | null;
+  RootAgent: string | null;
   TurnPayloadHash: string | null;
   Success: 'Y' | 'N';
   OutputJSON: string | null;
@@ -158,13 +160,17 @@ export class DrizzleAgentSessionRepository implements AgentSessionRepository {
       IdAIAgentExecution: aiAgentExecution.IdAIAgentExecution,
       ExecutionUUID: aiAgentExecution.ExecutionUUID,
       TurnUUID: aiAgentExecution.TurnUUID,
+      SessionUUID: aiAgentSession.SessionUUID,
+      RootAgent: aiAgentSession.RootAgent,
       TurnPayloadHash: aiAgentExecution.TurnPayloadHash,
       Success: aiAgentExecution.Success,
       OutputJSON: aiAgentExecution.OutputJSON,
       ErrorCode: aiAgentExecution.ErrorCode,
       ErrorMessage: aiAgentExecution.ErrorMessage,
       FinishedAt: aiAgentExecution.FinishedAt,
-    }).from(aiAgentExecution).where(eq(aiAgentExecution.TurnUUID, turnUUID)).limit(1);
+    }).from(aiAgentExecution)
+      .leftJoin(aiAgentSession, eq(aiAgentSession.IdAIAgentSession, aiAgentExecution.IdAIAgentSession))
+      .where(eq(aiAgentExecution.TurnUUID, turnUUID)).limit(1);
     if (!row || !row.TurnUUID) return undefined;
     return { ...row, TurnUUID: row.TurnUUID, Success: row.Success as 'Y' | 'N' };
   }

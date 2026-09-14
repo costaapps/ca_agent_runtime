@@ -77,6 +77,24 @@ describe('AIDocument Agent Runtime', () => {
     expect(conflict.response).toMatchObject({ Success: false, Error: { Code: 'TURN_IDEMPOTENCY_CONFLICT' } });
   });
 
+  it('rejects a reused TurnUUID before creating a Session for another ProcessLine', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const runtime = makeRuntime(repository, sessionRepository, {
+      async run(agent: Agent<RuntimeContextData, any>) {
+        return { finalOutput: { Response: agent.name, Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+      },
+    });
+
+    const first = await runtime.runTurn(makeTurn());
+    const conflictingProcessLine = await runtime.runTurn({ ...makeTurn({ Text: 'Payload diferente' }), IdProcessLine: 999 });
+
+    expect(first.statusCode).toBe(200);
+    expect(conflictingProcessLine).toMatchObject({ statusCode: 409, response: { Success: false, Error: { Code: 'TURN_IDEMPOTENCY_CONFLICT' } } });
+    expect(sessionRepository.sessions).toHaveLength(1);
+    expect(sessionRepository.sessions[0]).toMatchObject({ IdProcessLine: 456 });
+  });
+
   it('serializes runs of the same Session and rejects turns after close', async () => {
     const repository = new MemoryRepository();
     const sessionRepository = new MemorySessionRepository(repository);

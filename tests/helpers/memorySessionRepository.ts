@@ -65,6 +65,8 @@ export class MemorySessionRepository implements AgentSessionRepository {
       IdAIAgentExecution: entry.id,
       ExecutionUUID: entry.data.ExecutionUUID,
       TurnUUID: entry.data.TurnUUID,
+      SessionUUID: this.sessions.find((session) => session.IdAIAgentSession === entry.data.IdAIAgentSession)?.SessionUUID ?? null,
+      RootAgent: this.sessions.find((session) => session.IdAIAgentSession === entry.data.IdAIAgentSession)?.RootAgent ?? null,
       TurnPayloadHash: entry.data.TurnPayloadHash ?? null,
       Success: entry.final?.Success ?? 'N',
       OutputJSON: entry.final?.OutputJSON ?? null,

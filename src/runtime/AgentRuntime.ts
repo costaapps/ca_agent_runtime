@@ -208,15 +208,16 @@ export class AgentRuntime {
   private async runTurnLocked(input: AgentTurnInput, sessionRepository: AgentSessionRepository): Promise<AgentTurnRuntimeResult> {
     let session: AgentSessionRecord | undefined;
     try {
+      const payloadHash = hashTurnPayload(input);
+      const existing = await sessionRepository.findExecutionByTurn(input.TurnUUID);
+      if (existing) return this.resolveExistingTurn(input, existing, payloadHash);
+
       session = await sessionRepository.findByProcessLine(input.IdCompany, input.IdProcessLine);
       if (!session) {
         if (!this.options.registry.hasAIDocument(input.Agent)) return turnFailure(input, ErrorCodes.AgentNotFound, `Agent '${input.Agent}' não encontrado.`);
         const now = new Date();
         session = await sessionRepository.createSession({ SessionUUID: randomUUID(), IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, RootAgent: input.Agent, Status: 'OPEN', StartedAt: now, LastActivityAt: now, ClosedAt: null });
       }
-      const payloadHash = hashTurnPayload(input);
-      const existing = await sessionRepository.findExecutionByTurn(input.TurnUUID);
-      if (existing) return this.resolveExistingTurn(input, session, existing, payloadHash);
       if (session.Status === 'CLOSED') return turnFailure(input, ErrorCodes.AgentSessionClosed, 'A Session do AIDocument está fechada.', session.SessionUUID);
 
       const executionUUID = randomUUID();
@@ -299,15 +300,16 @@ export class AgentRuntime {
     }
   }
 
-  private resolveExistingTurn(input: AgentTurnInput, session: AgentSessionRecord, existing: StoredTurnExecution, payloadHash: string): AgentTurnRuntimeResult {
-    if (existing.TurnPayloadHash !== payloadHash) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', session.SessionUUID, existing.ExecutionUUID);
-    if (!existing.FinishedAt) return turnFailure(input, ErrorCodes.TurnInProgress, 'O Turn ainda está em execução.', session.SessionUUID, existing.ExecutionUUID);
+  private resolveExistingTurn(input: AgentTurnInput, existing: StoredTurnExecution, payloadHash: string): AgentTurnRuntimeResult {
+    if (existing.TurnPayloadHash !== payloadHash) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', undefined, existing.ExecutionUUID);
+    if (!existing.FinishedAt) return turnFailure(input, ErrorCodes.TurnInProgress, 'O Turn ainda está em execução.', existing.SessionUUID ?? undefined, existing.ExecutionUUID);
+    if (!existing.SessionUUID || !existing.RootAgent) return turnFailure(input, ErrorCodes.PersistenceError, 'A execução persistida não possui Session associada.', undefined, existing.ExecutionUUID);
     if (existing.Success === 'Y') {
       const output = parseStoredOutput(existing.OutputJSON);
-      if (!output) return turnFailure(input, ErrorCodes.PersistenceError, 'Output persistido do Turn é inválido.', session.SessionUUID, existing.ExecutionUUID);
-      return { statusCode: 200, response: { Success: true, TurnUUID: input.TurnUUID, SessionUUID: session.SessionUUID, ExecutionUUID: existing.ExecutionUUID, Agent: session.RootAgent, Response: output.Response, Control: output.Control } };
+      if (!output) return turnFailure(input, ErrorCodes.PersistenceError, 'Output persistido do Turn é inválido.', existing.SessionUUID, existing.ExecutionUUID);
+      return { statusCode: 200, response: { Success: true, TurnUUID: input.TurnUUID, SessionUUID: existing.SessionUUID, ExecutionUUID: existing.ExecutionUUID, Agent: existing.RootAgent, Response: output.Response, Control: output.Control } };
     }
-    return turnFailure(input, existing.ErrorCode ?? ErrorCodes.AgentRuntimeError, existing.ErrorMessage ?? 'Não foi possível concluir a execução.', session.SessionUUID, existing.ExecutionUUID);
+    return turnFailure(input, existing.ErrorCode ?? ErrorCodes.AgentRuntimeError, existing.ErrorMessage ?? 'Não foi possível concluir a execução.', existing.SessionUUID, existing.ExecutionUUID);
   }
 }
 

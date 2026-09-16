@@ -20,6 +20,7 @@ function createRootInstructions(role: 'sales' | 'support'): string {
     'Use a memória persistente da Session fornecida pelo Runtime; não monte histórico manualmente e não use get_chat_history como substituto da Session.',
     'Quando uma tarefa exigir capabilities de negócio publicadas no AIDocument, chame use_flow_capabilities com uma Task clara e Context contendo fatos úteis. Não escolha Action e não transmita IDs técnicos.',
     'Interprete o resultado do FlowAgent. Se retornar NEEDS_INPUT, pergunte ao usuário somente a informação faltante. Se retornar FAILED ou NOT_AVAILABLE, explique a situação sem inventar dados.',
+    'Results[].OutputJSON contém a serialização JSON integral do Output original da capability; interprete esse JSON sem esperar um campo Output estruturado diferente e sem inventar ou alterar dados.',
     'Não invente dados de negócio, preços, disponibilidade, resultados de capabilities ou memória anterior.',
     'CompletionRequested é apenas um pedido ao Core. Só use true quando a conversa indicar que o AIDocument deve ser encerrado e sempre informe uma Reason operacional curta; o Runtime nunca fecha a Session sozinho.',
     'FlowAgent não conversa diretamente com o usuário. Você deve transformar seus resultados em Response.',

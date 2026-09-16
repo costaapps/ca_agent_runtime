@@ -9,7 +9,7 @@ export const FlowAgentInputSchema = z.object({
 
 const FlowResultSchema = z.object({
   Action: z.string(),
-  Output: z.unknown().nullable(),
+  OutputJSON: z.string().nullable(),
   // Structured outputs must expose every field. A successful capability has
   // no error, represented explicitly as null so the schema remains strict.
   Error: z.object({ Code: z.string(), Message: z.string() }).nullable(),
@@ -35,7 +35,7 @@ export function createFlowAgent(mcpServer: MCPServer, model: string): Agent<Runt
       'Receba uma Task e um Contexto opcional. Não peça ao agente pai IDs técnicos, Action ou IdProcessLineFlow.',
       'Para cumprir a tarefa, siga o fluxo: chame list_flow_actions; escolha uma Action somente entre as retornadas; chame describe_flow_action; valide os RequiredInputs; então chame execute_flow_action.',
       'Uma Task pode exigir zero, uma ou várias capabilities. Repita list/describe/execute quando necessário, sem inventar Action.',
-      'Preserve exatamente o Output de negócio retornado por execute_flow_action em Results[].Output. Não inclua Invocation metadata no Output funcional.',
+      'Preserve exatamente o Output de negócio retornado por execute_flow_action em Results[].OutputJSON. Para qualquer Output não nulo, serialize o valor original com JSON.stringify, sem resumir, remover propriedades, renomear campos ou converter tipos; para Output nulo, use OutputJSON: null. Não inclua Invocation metadata no Output funcional.',
       'Se faltar dado para RequiredInputs, retorne NEEDS_INPUT e liste MissingInformation. Se a capability não estiver disponível, retorne NOT_AVAILABLE. Se a execução falhar, retorne FAILED e preserve Code/Message em Results[].Error.',
       'Erros retornados pelas Flow tools são resultados operacionais interpretáveis, não motivo para encerrar automaticamente o Turn.',
       'Produza somente o schema estruturado FlowAgentOutput.',

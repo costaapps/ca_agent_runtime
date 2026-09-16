@@ -40,7 +40,7 @@ class DeterministicAIDocumentModel implements Model {
         Summary: this.flowFailure ? 'A capability retornou erro.' : 'Capability executada.',
         Results: [{
           Action: 'get_customer_details',
-          Output: this.flowFailure ? null : { CustomerCode: 'C000123' },
+          OutputJSON: this.flowFailure ? null : JSON.stringify({ CustomerCode: 'C000123' }),
           Error: this.flowFailure ? { Code: 'FLOW_ACTION_ALREADY_EXECUTED', Message: 'Já executada.' } : null,
         }],
         MissingInformation: [],
@@ -102,6 +102,12 @@ describe('AIDocument full Agents SDK path with fake model', () => {
     expect(result).toMatchObject({ statusCode: 200, response: { Success: true, Response: 'Consultei a capability e encontrei o cliente C000123.' } });
     expect(model.requests.some((request) => request.tools.some((tool) => tool.name === 'use_flow_capabilities'))).toBe(true);
     expect(model.requests.some((request) => request.tools.some((tool) => tool.name === 'list_flow_actions'))).toBe(true);
+    const flowRequest = model.requests.find((request) => request.tools.some((tool) => tool.name === 'list_flow_actions'));
+    expect(flowRequest?.outputType).toMatchObject({ type: 'json_schema' });
+    expect(JSON.stringify(flowRequest?.outputType)).toContain('OutputJSON');
+    const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
+    const flowResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_flow_capabilities') as any;
+    expect(JSON.parse(flowResult.output.text)).toMatchObject({ Results: [{ OutputJSON: '{"CustomerCode":"C000123"}' }] });
     expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL').map((entry) => entry.data.ToolName)).toEqual(['list_flow_actions', 'describe_flow_action', 'execute_flow_action']);
     expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_RESULT').map((entry) => entry.data.ToolName)).toEqual(['list_flow_actions', 'describe_flow_action', 'execute_flow_action']);
     const sessionUUID = sessionRepository.sessions[0]?.SessionUUID;

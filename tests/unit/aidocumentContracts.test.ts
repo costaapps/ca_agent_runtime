@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { AgentTurnInputSchema } from '../../src/api/contracts/agentTurnInput.js';
 import { AIDocumentRootOutputSchema } from '../../src/api/contracts/agentTurnOutput.js';
-import { FlowAgentInputSchema, FlowAgentOutputSchema } from '../../src/agents/aidocument/flowAgent.js';
+import { FlowAgentInputSchema, FlowAgentOutputSchema } from '../../src/agents/aidocument/specialists/flowAgent.js';
 import { AgentRegistry } from '../../src/agents/AgentRegistry.js';
 
 describe('AIDocument contracts', () => {

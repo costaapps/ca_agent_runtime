@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Agent, Runner, Usage, type AgentInputItem, type Model, type ModelRequest, type ModelResponse } from '@openai/agents';
 import { AgentRegistry } from '../../src/agents/AgentRegistry.js';
-import { createAIDocumentRootAgent } from '../../src/agents/aidocument/rootAgents.js';
+import { createSalesAgent } from '../../src/agents/aidocument/roots/salesAgent.js';
 import { AgentRuntime } from '../../src/runtime/AgentRuntime.js';
 import { createFakeMcpServer } from '../../src/mcp/fakeMcpServer.js';
 import { createCustomDataExtractor } from '../../src/mcp/customDataExtractor.js';
@@ -64,7 +64,7 @@ function createTestRuntime(model: DeterministicAIDocumentModel, server: ReturnTy
   server.toolMetaResolver = createToolMetaResolver(observability, tracker) as any;
   server.customDataExtractor = createCustomDataExtractor(observability, tracker) as any;
   const registry = new AgentRegistry(undefined, {
-    'sales-agent': ({ mcpServer }) => createAIDocumentRootAgent('SalesAgent', mcpServer, model as any),
+    'sales-agent': (context) => createSalesAgent({ ...context, model: model as any }),
   });
   const runtime = new AgentRuntime({
     repository,

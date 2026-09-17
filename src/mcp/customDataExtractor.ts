@@ -43,10 +43,11 @@ export function createCustomDataExtractor(
       await logger.toolResult(toolName, output, durationMs, isError ? 'ERROR' : 'COMPLETED', isError ? 'MCP tool retornou erro.' : undefined);
     }
 
-    const patch = resolvedFromMeta(resultMeta);
+    const patch = isError ? undefined : resolvedFromMeta(resultMeta);
     if (patch) mergeResolved(context, patch);
 
-    if (isError) {
+    const flowTool = toolName === 'list_flow_actions' || toolName === 'describe_flow_action' || toolName === 'execute_flow_action';
+    if (isError && !flowTool) {
       throw new RuntimeError(ErrorCodes.McpToolError, `MCP tool '${toolName}' retornou erro.`);
     }
 

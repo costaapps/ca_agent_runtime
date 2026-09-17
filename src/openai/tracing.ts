@@ -10,6 +10,10 @@ export interface TraceSettings {
   model: string;
   executionUUID: string;
   idChat: number;
-  idProcessLineFlow: number;
+  idProcessLine: number;
+  idProcessLineFlow: number | null;
+  sessionUUID?: string;
+  turnUUID?: string;
+  rootAgent?: string;
   traceId: string;
 }

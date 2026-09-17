@@ -1,4 +1,4 @@
-import { Runner, type Agent } from '@openai/agents';
+import { Runner, type Agent, type AgentInputItem, type Session } from '@openai/agents';
 import type { RuntimeContextData } from '../runtime/RuntimeContext.js';
 import type { TraceSettings } from './tracing.js';
 
@@ -8,12 +8,12 @@ export interface AgentRunResultLike {
 }
 
 export interface OpenAIRunner {
-  run(agent: Agent<RuntimeContextData, any>, message: string, context: RuntimeContextData, tracing: TraceSettings): Promise<AgentRunResultLike>;
+  run(agent: Agent<RuntimeContextData, any>, input: string | AgentInputItem[], context: RuntimeContextData, tracing: TraceSettings, session?: Session): Promise<AgentRunResultLike>;
 }
 
 export function createOpenAIRunner(): OpenAIRunner {
   return {
-    async run(agent, message, context, tracing) {
+    async run(agent, input, context, tracing, session) {
       const runner = new Runner({
         model: tracing.model,
         workflowName: 'Msg4 AI Flow',
@@ -21,12 +21,16 @@ export function createOpenAIRunner(): OpenAIRunner {
         groupId: String(tracing.idChat),
         traceMetadata: {
           ExecutionUUID: tracing.executionUUID,
-          IdProcessLineFlow: String(tracing.idProcessLineFlow),
+          IdProcessLine: String(tracing.idProcessLine),
+          IdProcessLineFlow: tracing.idProcessLineFlow === null ? '' : String(tracing.idProcessLineFlow),
+          SessionUUID: tracing.sessionUUID ?? '',
+          TurnUUID: tracing.turnUUID ?? '',
+          RootAgent: tracing.rootAgent ?? agent.name,
         },
         tracingDisabled: !tracing.enabled,
         traceIncludeSensitiveData: tracing.includeSensitiveData,
       });
-      const result = await runner.run(agent, message, { context, stream: false });
+      const result = await runner.run(agent, input, { context, stream: false, session });
       const output: AgentRunResultLike = { finalOutput: result.finalOutput };
       if (result.lastAgent) output.lastAgent = { name: result.lastAgent.name };
       return output;

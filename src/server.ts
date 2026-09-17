@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { loadEnv } from './config/env.js';
 import { createDatabase, closeDatabase } from './database/connection.js';
 import { DrizzleAiExecutionRepository } from './database/repositories/aiExecutionRepository.js';
+import { DrizzleAgentSessionRepository } from './database/repositories/aiSessionRepository.js';
 import { AgentRegistry } from './agents/AgentRegistry.js';
 import { createOpenAIRunner } from './openai/runner.js';
 import { createMcpClient } from './mcp/client.js';
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
     await mcp.connect();
     const runtime = new AgentRuntime({
       repository: new DrizzleAiExecutionRepository(database.db),
+      sessionRepository: new DrizzleAgentSessionRepository(database.db),
       registry: new AgentRegistry(),
       runner: createOpenAIRunner(),
       mcpServer: mcp.server,

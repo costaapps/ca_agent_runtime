@@ -29,7 +29,7 @@ export function createChatOrchestrator(
       'Interprete a mensagem atual e selecione o especialista adequado usando handoff nativo quando houver especialização clara.',
       'SalesAgent atende intenção comercial, compra e produto. SupportAgent atende suporte, problema e dúvida operacional.',
       'Ao fazer handoff, forneça apenas uma razão operacional curta no campo Reason. Nunca forneça cadeia de raciocínio.',
-      `A obrigação final é cumprir ExpectedOutput.Description: ${context.Execution.ExpectedOutput.Description}`,
+      `A obrigação final é cumprir ExpectedOutput.Description: ${context.Execution.ExpectedOutput?.Description ?? 'o contrato legado recebido pelo Runtime'}`,
       'Você não possui tools MCP nesta etapa.',
     ].join('\n'),
     handoffs: [...handoffs],

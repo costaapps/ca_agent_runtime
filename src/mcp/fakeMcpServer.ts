@@ -1,4 +1,5 @@
 import type { MCPServer } from '@openai/agents';
+import { createToolFilter } from '../runtime/ToolPolicies.js';
 
 type FakeTool = {
   name: string;
@@ -6,7 +7,11 @@ type FakeTool = {
   inputSchema: Record<string, unknown>;
 };
 
-export function createFakeMcpServer(): MCPServer {
+export interface FakeMcpServerOptions {
+  executeFlowError?: { Code: string; Message: string };
+}
+
+export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServer {
   const tools: FakeTool[] = [
     {
       name: 'get_chat_history',
@@ -57,6 +62,31 @@ export function createFakeMcpServer(): MCPServer {
       description: 'Busca os preços do produto confirmado nas listas de preços.',
       inputSchema: { type: 'object', properties: {}, required: [], additionalProperties: false },
     },
+    {
+      name: 'list_flow_actions',
+      description: 'Lista as capabilities de negócio publicadas e disponíveis no AIDocument.',
+      inputSchema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+    },
+    {
+      name: 'describe_flow_action',
+      description: 'Descreve uma capability publicada e seus dados obrigatórios.',
+      inputSchema: {
+        type: 'object',
+        properties: { Action: { type: 'string' } },
+        required: ['Action'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'execute_flow_action',
+      description: 'Executa uma capability publicada com os dados de negócio informados.',
+      inputSchema: {
+        type: 'object',
+        properties: { Action: { type: 'string' }, Input: { type: 'object' } },
+        required: ['Action', 'Input'],
+        additionalProperties: false,
+      },
+    },
   ];
   const callTool = async (toolName: string) => {
     if (toolName === 'get_chat_history') return [{ type: 'text', text: JSON.stringify({ Messages: [] }) }];
@@ -64,18 +94,33 @@ export function createFakeMcpServer(): MCPServer {
     if (toolName === 'get_pricelists') return [{ type: 'text', text: JSON.stringify({ PriceLists: [] }) }];
     if (toolName === 'resolve_product') return [{ type: 'text', text: JSON.stringify({ Product: { IdItem: 10 } }) }];
     if (toolName === 'get_products_pricelists') return [{ type: 'text', text: JSON.stringify({ ProductsPriceLists: [] }) }];
+    if (toolName === 'list_flow_actions') return [{ type: 'text', text: JSON.stringify({ Actions: [{ Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.' }] }) }];
+    if (toolName === 'describe_flow_action') return [{ type: 'text', text: JSON.stringify({ Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.', Repeatable: true, Available: true, ExecutionCount: 0, UnavailableReason: null, RequiredInputs: [] }) }];
+    if (toolName === 'execute_flow_action' && options.executeFlowError) {
+      return [{ type: 'text', text: JSON.stringify({ Success: false, Action: 'get_customer_details', Output: null, Error: options.executeFlowError }) }];
+    }
+    if (toolName === 'execute_flow_action') return [{ type: 'text', text: JSON.stringify({ Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } }) }];
     return [{ type: 'text', text: JSON.stringify({ Steps: [] }) }];
   };
   return {
     name: 'fake-mcp',
     cacheToolsList: false,
     useStructuredContent: true,
+    toolFilter: createToolFilter() as any,
     async connect() {},
     async close() {},
     async listTools() { return tools; },
     async invalidateToolsCache() {},
     callTool,
     async callToolResult(toolName: string) {
+      if (toolName === 'execute_flow_action' && options.executeFlowError) {
+        return {
+          content: await callTool(toolName),
+          structuredContent: { Success: false, Action: 'get_customer_details', Output: null, Error: options.executeFlowError },
+          _meta: { ca: { FlowInvocation: { InvocationUUID: 'fake-invocation-uuid' } } },
+          isError: true,
+        };
+      }
       if (toolName === 'resolve_product') {
         return {
           content: await callTool(toolName),
@@ -92,9 +137,15 @@ export function createFakeMcpServer(): MCPServer {
             ? { Steps: [] }
             : toolName === 'get_products'
               ? { Products: [] }
-              : toolName === 'get_pricelists'
-                ? { PriceLists: [] }
-                : { ProductsPriceLists: [] },
+            : toolName === 'get_pricelists'
+              ? { PriceLists: [] }
+                : toolName === 'get_products_pricelists'
+                  ? { ProductsPriceLists: [] }
+                  : toolName === 'list_flow_actions'
+                    ? { Actions: [{ Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.' }] }
+                    : toolName === 'describe_flow_action'
+                      ? { Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.', Repeatable: true, Available: true, ExecutionCount: 0, UnavailableReason: null, RequiredInputs: [] }
+                      : { Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } },
         isError: false,
       };
     },

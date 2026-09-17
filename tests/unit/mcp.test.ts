@@ -147,4 +147,20 @@ describe('MCP context integration', () => {
     expect(JSON.parse(String(calls[1]?.[0]))).toMatchObject({ Event: 'MCP_TOOL_RESULT_AFTER', ToolName: 'resolve_product' });
     expect(repository.logs.map((entry) => entry.data.EventType)).toEqual(['MCP_TOOL_CALL', 'MCP_TOOL_RESULT']);
   });
+
+  it('keeps Flow tool errors model-visible without aborting the whole Turn', async () => {
+    const context = makeContext();
+    const registry = new McpObservabilityRegistry();
+    const tracker = new ToolCallTracker();
+    const extractor = createCustomDataExtractor(registry, tracker);
+    await expect(extractor({
+      runContext: new RunContext(context), serverName: 'fake', toolName: 'execute_flow_action', toolDisplayName: 'execute_flow_action',
+      arguments: { Action: 'create_sales_order', Input: {} },
+      resultMeta: { ca: { FlowInvocation: { InvocationUUID: 'invocation-uuid' }, Resolved: { IdItem: 999 } } },
+      structuredContent: { Success: false, Action: 'create_sales_order', Output: null, Error: { Code: 'FLOW_ACTION_ALREADY_EXECUTED', Message: 'Já executada.' } },
+      isError: true,
+      toolOutput: JSON.stringify({ Success: false, Error: { Code: 'FLOW_ACTION_ALREADY_EXECUTED', Message: 'Já executada.' } }),
+    })).resolves.toBeUndefined();
+    expect(context.Resolved).toEqual({});
+  });
 });

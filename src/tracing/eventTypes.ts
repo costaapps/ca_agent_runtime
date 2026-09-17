@@ -6,6 +6,7 @@ export const ExecutionEventTypes = {
   McpToolResult: 'MCP_TOOL_RESULT',
   AgentOutput: 'AGENT_OUTPUT',
   RuntimeEnd: 'RUNTIME_END',
+  RuntimeWarning: 'RUNTIME_WARNING',
   RuntimeError: 'RUNTIME_ERROR',
 } as const;
 

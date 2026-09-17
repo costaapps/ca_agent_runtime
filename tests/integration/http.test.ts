@@ -53,4 +53,41 @@ describe('HTTP API', () => {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
+
+  it('exposes AIDocument turn and session close routes without changing the legacy route', async () => {
+    const app = createApp({
+      async run(input: any) {
+        return { statusCode: 200 as const, response: { Success: true as const, ExecutionUUID: 'legacy-uuid', Output: { Intent: input.ExpectedOutput.Name } } };
+      },
+      async runTurn(input: any) {
+        return { statusCode: 200 as const, response: { Success: true as const, TurnUUID: input.TurnUUID, SessionUUID: 'session-uuid', ExecutionUUID: 'execution-uuid', Agent: input.Agent, Response: 'Ok', Control: { CompletionRequested: false, Reason: null } } };
+      },
+      async closeSession() {
+        return { statusCode: 200 as const, response: { Success: true as const, SessionUUID: 'session-uuid', Status: 'CLOSED' as const } };
+      },
+    });
+    const server = app.listen(0);
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    try {
+      const invalidTurn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ Agent: 'sales-agent' }) });
+      expect(invalidTurn.status).toBe(400);
+
+      const turn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 1, Text: 'Oi' }] }),
+      });
+      expect(turn.status).toBe(200);
+      expect(await turn.json()).toMatchObject({ Success: true, SessionUUID: 'session-uuid' });
+
+      const close = await fetch(`http://127.0.0.1:${port}/v1/agent-sessions/close`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ IdCompany: 1003, IdProcessLine: 456, Reason: 'PROCESS_LINE_CLOSED' }),
+      });
+      expect(close.status).toBe(200);
+      expect(await close.json()).toMatchObject({ Success: true, Status: 'CLOSED' });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
 });

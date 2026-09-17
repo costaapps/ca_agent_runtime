@@ -21,7 +21,7 @@ async function main(): Promise<void> {
     const runtime = new AgentRuntime({
       repository: new DrizzleAiExecutionRepository(database.db),
       sessionRepository: new DrizzleAgentSessionRepository(database.db),
-      registry: new AgentRegistry(),
+      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: env.RECEPTION_AGENT_VECTOR_STORE_IDS }),
       runner: createOpenAIRunner(),
       mcpServer: mcp.server,
       observability,

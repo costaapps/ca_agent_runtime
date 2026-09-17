@@ -55,6 +55,7 @@ describe('AIDocument contracts', () => {
     expect(registry.has('chat-orchestrator-poc')).toBe(true);
     expect(registry.hasAIDocument('sales-agent')).toBe(true);
     expect(registry.hasAIDocument('support-agent')).toBe(true);
+    expect(registry.hasAIDocument('reception-agent')).toBe(true);
     expect(registry.hasAIDocument('chat-orchestrator-poc')).toBe(false);
   });
 });

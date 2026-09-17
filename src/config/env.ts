@@ -15,6 +15,7 @@ const EnvSchema = z.object({
   DB_PASSWORD: z.string(),
   DB_DATABASE: z.string().min(1),
   DB_CONNECTION_LIMIT: z.coerce.number().int().positive().default(10),
+  RECEPTION_AGENT_VECTOR_STORE_IDS: z.string().default(''),
 });
 
 export interface RuntimeEnv {
@@ -32,6 +33,11 @@ export interface RuntimeEnv {
   DB_PASSWORD: string;
   DB_DATABASE: string;
   DB_CONNECTION_LIMIT: number;
+  RECEPTION_AGENT_VECTOR_STORE_IDS: string[];
+}
+
+export function normalizeVectorStoreIds(value: string | undefined): string[] {
+  return [...new Set((value ?? '').split(',').map((id) => id.trim()).filter(Boolean))];
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): RuntimeEnv {
@@ -40,5 +46,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): RuntimeEnv {
     ...parsed,
     OPENAI_TRACING_ENABLED: parsed.OPENAI_TRACING_ENABLED === 'true',
     OPENAI_TRACE_INCLUDE_SENSITIVE_DATA: parsed.OPENAI_TRACE_INCLUDE_SENSITIVE_DATA === 'true',
+    RECEPTION_AGENT_VECTOR_STORE_IDS: normalizeVectorStoreIds(parsed.RECEPTION_AGENT_VECTOR_STORE_IDS),
   };
 }

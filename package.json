@@ -18,7 +18,7 @@
     "db:migrate": "tsx src/database/migrate.ts"
   },
   "dependencies": {
-    "@openai/agents": "^0.17.2",
+    "@openai/agents": "^0.18.0",
     "dotenv": "^16.6.1",
     "drizzle-orm": "^0.44.5",
     "express": "^5.1.0",

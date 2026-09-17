@@ -16,6 +16,7 @@ export const ErrorCodes = {
   AgentSessionNotFound: 'AGENT_SESSION_NOT_FOUND',
   TurnInProgress: 'TURN_IN_PROGRESS',
   TurnIdempotencyConflict: 'TURN_IDEMPOTENCY_CONFLICT',
+  ReceptionAgentKnowledgeNotConfigured: 'RECEPTION_AGENT_KNOWLEDGE_NOT_CONFIGURED',
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];

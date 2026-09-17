@@ -77,6 +77,33 @@ describe('AIDocument Agent Runtime', () => {
     expect(conflict.response).toMatchObject({ Success: false, Error: { Code: 'TURN_IDEMPOTENCY_CONFLICT' } });
   });
 
+  it('freezes reception-agent as the Session RootAgent even when a later Turn requests SalesAgent', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const runtime = new AgentRuntime({
+      repository,
+      sessionRepository,
+      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      runner: {
+        async run(agent: Agent<RuntimeContextData, any>) {
+          return { finalOutput: { Response: agent.name, Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+        },
+      },
+      mcpServer: createFakeMcpServer(),
+      observability: new McpObservabilityRegistry(),
+      model: 'test-model',
+      tracingEnabled: true,
+      traceIncludeSensitiveData: false,
+    });
+
+    const first = await runtime.runTurn(makeTurn({ Agent: 'reception-agent', Text: 'Olá' }));
+    const second = await runtime.runTurn(makeTurn({ Agent: 'sales-agent', TurnUUID: '14ed24ea-0000-4000-8000-000000000004', IdMessage: 1004, Text: 'Quero comprar' }));
+
+    expect(first.response).toMatchObject({ Agent: 'reception-agent', Response: 'ReceptionAgent' });
+    expect(second.response).toMatchObject({ Agent: 'reception-agent', Response: 'ReceptionAgent' });
+    expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_WARNING' && entry.data.ErrorMessage?.startsWith('ROOT_AGENT_FROZEN:'))).toBe(true);
+  });
+
   it('rejects a reused TurnUUID before creating a Session for another ProcessLine', async () => {
     const repository = new MemoryRepository();
     const sessionRepository = new MemorySessionRepository(repository);

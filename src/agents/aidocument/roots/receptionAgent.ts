@@ -3,6 +3,7 @@ import type { AIDocumentAgentGraph, ReceptionAgentBuildContext } from '../contra
 import { AIDocumentRootOutputSchema } from '../../../api/contracts/agentTurnOutput.js';
 import type { RuntimeContextData } from '../../../runtime/RuntimeContext.js';
 import { RuntimeError } from '../../../errors/RuntimeError.js';
+import { ErrorCodes } from '../../../errors/errorCodes.js';
 
 export const RECEPTION_AGENT_INSTRUCTIONS = [
   'Você é o ReceptionAgent da Empresa XPTO e é responsável pela conversa inicial.',
@@ -21,7 +22,7 @@ export const RECEPTION_AGENT_INSTRUCTIONS = [
 
 export function createReceptionAgent(context: ReceptionAgentBuildContext): AIDocumentAgentGraph {
   if (context.vectorStoreIds.length === 0) {
-    throw new RuntimeError('RECEPTION_AGENT_KNOWLEDGE_NOT_CONFIGURED', 'ReceptionAgent requer ao menos um Vector Store em RECEPTION_AGENT_VECTOR_STORE_IDS.');
+    throw new RuntimeError(ErrorCodes.ReceptionAgentKnowledgeNotConfigured, 'ReceptionAgent requer ao menos um Vector Store em RECEPTION_AGENT_VECTOR_STORE_IDS.');
   }
 
   const root = new Agent<RuntimeContextData, typeof AIDocumentRootOutputSchema>({

@@ -21,7 +21,7 @@ describe('AIDocument FlowAgent tool boundary', () => {
     const rootTools = await graph.root.getAllTools(runContext);
     const flowTools = await graph.agents[1]!.getAllTools(runContext);
 
-    expect(rootTools.map((tool) => tool.name)).toContain('use_flow_capabilities');
+    expect(rootTools.map((tool) => tool.name)).toEqual(['use_flow_capabilities']);
     expect(rootTools.map((tool) => tool.name)).not.toContain('list_flow_actions');
     expect(rootTools.map((tool) => tool.name)).not.toContain('describe_flow_action');
     expect(rootTools.map((tool) => tool.name)).not.toContain('execute_flow_action');

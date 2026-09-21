@@ -1,6 +1,6 @@
 import { Agent, type MCPServer } from '@openai/agents';
 import { z } from 'zod';
-import type { RuntimeContextData } from '../../runtime/RuntimeContext.js';
+import type { RuntimeContextData } from '../../../runtime/RuntimeContext.js';
 
 export const FlowAgentInputSchema = z.object({
   Task: z.string().min(1),

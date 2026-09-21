@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Agent, RunContext } from '@openai/agents';
-import { createHandoffs, HandoffReasonSchema } from '../../src/agents/handoffs.js';
+import { createHandoffs, HandoffReasonSchema } from '../../src/agents/legacy/handoffs.js';
 import { ExecutionLogger } from '../../src/tracing/ExecutionLogger.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { createRuntimeContext } from '../../src/runtime/RuntimeContext.js';

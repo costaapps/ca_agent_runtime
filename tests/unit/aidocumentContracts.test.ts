@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { AgentTurnInputSchema } from '../../src/api/contracts/agentTurnInput.js';
 import { AIDocumentRootOutputSchema } from '../../src/api/contracts/agentTurnOutput.js';
-import { FlowAgentInputSchema, FlowAgentOutputSchema } from '../../src/agents/aidocument/flowAgent.js';
+import { FlowAgentInputSchema, FlowAgentOutputSchema } from '../../src/agents/aidocument/specialists/flowAgent.js';
 import { AgentRegistry } from '../../src/agents/AgentRegistry.js';
+import { AgentNotFoundError } from '../../src/errors/RuntimeError.js';
 
 describe('AIDocument contracts', () => {
   it('validates the new turn and fixed root output', () => {
@@ -55,6 +56,11 @@ describe('AIDocument contracts', () => {
     expect(registry.has('chat-orchestrator-poc')).toBe(true);
     expect(registry.hasAIDocument('sales-agent')).toBe(true);
     expect(registry.hasAIDocument('support-agent')).toBe(true);
+    expect(registry.hasAIDocument('reception-agent')).toBe(true);
     expect(registry.hasAIDocument('chat-orchestrator-poc')).toBe(false);
+  });
+
+  it('does not silently resolve an unknown AIDocument Agent', () => {
+    expect(() => new AgentRegistry().buildAIDocument('unknown-agent', {} as any)).toThrow(AgentNotFoundError);
   });
 });

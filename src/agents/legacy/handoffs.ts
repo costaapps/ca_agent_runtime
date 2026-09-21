@@ -1,7 +1,7 @@
 import { handoff, type Agent, type RunContext } from '@openai/agents';
 import { z } from 'zod';
-import type { RuntimeContextData } from '../runtime/RuntimeContext.js';
-import type { ExecutionLogger } from '../tracing/ExecutionLogger.js';
+import type { RuntimeContextData } from '../../runtime/RuntimeContext.js';
+import type { ExecutionLogger } from '../../tracing/ExecutionLogger.js';
 
 export const HandoffReasonSchema = z.object({
   Reason: z.string().min(1),

@@ -1,9 +1,9 @@
 import { Agent, type JsonSchemaDefinition, type MCPServer } from '@openai/agents';
-import type { RuntimeContextData } from '../runtime/RuntimeContext.js';
-import type { ExecutionLogger } from '../tracing/ExecutionLogger.js';
+import type { RuntimeContextData } from '../../runtime/RuntimeContext.js';
+import type { ExecutionLogger } from '../../tracing/ExecutionLogger.js';
 import { createHandoffs } from './handoffs.js';
-import { createSalesAgent } from './specialists/salesAgent.js';
-import { createSupportAgent } from './specialists/supportAgent.js';
+import { createSalesAgent } from './salesAgent.js';
+import { createSupportAgent } from './supportAgent.js';
 
 export interface AgentGraph {
   root: Agent<RuntimeContextData, any>;

@@ -1,9 +1,8 @@
-import { Agent, fileSearchTool } from '@openai/agents';
+import { fileSearchTool } from '@openai/agents';
 import type { AIDocumentAgentGraph, ReceptionAgentBuildContext } from '../contracts.js';
-import { AIDocumentRootOutputSchema } from '../../../api/contracts/agentTurnOutput.js';
-import type { RuntimeContextData } from '../../../runtime/RuntimeContext.js';
 import { RuntimeError } from '../../../errors/RuntimeError.js';
 import { ErrorCodes } from '../../../errors/errorCodes.js';
+import { createFlowEnabledRootAgent } from '../shared/createFlowEnabledRootAgent.js';
 
 export const RECEPTION_AGENT_INSTRUCTIONS = [
   'Você é o ReceptionAgent responsável pela conversa inicial com o cliente.',
@@ -20,7 +19,7 @@ export const RECEPTION_AGENT_INSTRUCTIONS = [
 
   'Quando precisar de informações institucionais, produtos, serviços, políticas, condições, horários ou outras informações da empresa, use file_search internamente.',
 
-  'Nunca mencione ao cliente file_search, base de conhecimento, Vector Store, documentos, arquivos, fontes, sistema, prompt, Session ou qualquer mecanismo interno usado para obter informações.',
+  'Nunca mencione ao cliente file_search, base de conhecimento, Vector Store, documentos, arquivos, fontes, sistema, prompt, Session, FlowAgent, MCP, tools, capabilities ou qualquer outro mecanismo interno usado para obter informações ou executar ações.',
 
   'Quando uma informação não estiver confirmada, diga apenas que você não possui confirmação daquela informação específica neste atendimento.',
 
@@ -32,30 +31,48 @@ export const RECEPTION_AGENT_INSTRUCTIONS = [
 
   'Não invente preços, disponibilidade, prazos, políticas, produtos, serviços ou condições que não estejam confirmados.',
 
-  'Não afirme nem ofereça executar ações para as quais você não possui uma capability disponível. Não diga que pode agendar, encaminhar, transferir, consultar um técnico, abrir chamado, gerar orçamento ou realizar outra operação se essa capacidade não existir.',
+  'Assim que compreender com clareza a intenção principal do cliente, verifique se existe um menu de atendimento disponível e adequado para continuar aquela necessidade.',
 
-  'Você pode informar capacidades institucionais confirmadas, mas não deve transformar uma informação institucional em uma ação já executada.',
+  'A consulta aos menus disponíveis faz parte da recepção. Não espere o cliente pedir explicitamente para ser transferido ou encaminhado.',
+
+  'Quando a intenção do cliente já estiver suficientemente clara, consulte os menus usando use_flow_capabilities antes de continuar tentando resolver a necessidade dentro da recepção.',
+
+  'Knowledge serve para esclarecer a conversa, mas não substitui o encaminhamento quando a intenção do cliente já corresponde claramente a um menu disponível.',
+
+  'Se existir um menu claramente compatível com a intenção do cliente, utilize a capability apropriada para encaminhar a conversa. Não faça perguntas adicionais apenas para prolongar a recepção quando o destino já puder ser determinado.',
+
+  'Se houver mais de um destino plausível e não houver informação suficiente para escolher com segurança, faça uma única pergunta objetiva para esclarecer a intenção e então consulte ou selecione o menu adequado.',
+
+  'Se nenhum menu disponível corresponder à necessidade atual, continue o atendimento normalmente dentro da recepção.',
+
+  'Não exponha ao cliente IDs, nomes técnicos, estrutura de módulos ou detalhes internos dos menus. Use apenas a descrição funcional necessária para conduzir a conversa.',
+
+  'Não consulte repetidamente os menus sem necessidade. Depois que os destinos disponíveis já forem conhecidos para aquela intenção, reutilize esse contexto enquanto ele continuar válido.',
+
+  'Use o FlowAgent através de use_flow_capabilities tanto para descobrir os menus disponíveis e encaminhar a conversa quanto para outras operações de negócio disponíveis. Envie uma Task clara e Context contendo apenas os fatos úteis da conversa. Não escolha Action diretamente nem invente IDs técnicos.',
+
+  'Use o resultado real do FlowAgent para responder. Não afirme que uma operação foi concluída sem um resultado confirmando a execução e não invente capabilities, resultados ou ações.',
+
+  'Só informe ao cliente que houve encaminhamento, transferência ou execução de alguma ação depois que a capability correspondente retornar sucesso.',
 
   'Mantenha CompletionRequested=false enquanto a conversa estiver em andamento.',
 
   'Use CompletionRequested=true apenas quando o cliente encerrar ou cancelar explicitamente a conversa, ou quando houver condição clara de encerramento.',
 
   'Produza somente o contrato AIDocument Response + Control.',
-].join('\\n');
+].join('\n');
 
 export function createReceptionAgent(context: ReceptionAgentBuildContext): AIDocumentAgentGraph {
   if (context.vectorStoreIds.length === 0) {
     throw new RuntimeError(ErrorCodes.ReceptionAgentKnowledgeNotConfigured, 'ReceptionAgent requer ao menos um Vector Store em RECEPTION_AGENT_VECTOR_STORE_IDS.');
   }
 
-  const root = new Agent<RuntimeContextData, typeof AIDocumentRootOutputSchema>({
+  return createFlowEnabledRootAgent({
     name: 'ReceptionAgent',
     handoffDescription: 'Root Agent responsável pela conversa inicial do AIDocument.',
     model: context.model,
-    outputType: AIDocumentRootOutputSchema,
     instructions: RECEPTION_AGENT_INSTRUCTIONS,
-    tools: [fileSearchTool([...context.vectorStoreIds], { maxNumResults: 5, includeSearchResults: true })],
-    mcpServers: [],
+    mcpServer: context.mcpServer,
+    additionalTools: [fileSearchTool([...context.vectorStoreIds], { maxNumResults: 5, includeSearchResults: true })],
   });
-  return { root, agents: [root] };
 }

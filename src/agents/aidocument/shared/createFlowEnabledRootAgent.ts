@@ -1,4 +1,4 @@
-import { Agent, type MCPServer } from '@openai/agents';
+import { Agent, type MCPServer, type Tool } from '@openai/agents';
 import type { AIDocumentAgentGraph } from '../contracts.js';
 import { AIDocumentRootOutputSchema } from '../../../api/contracts/agentTurnOutput.js';
 import type { RuntimeContextData } from '../../../runtime/RuntimeContext.js';
@@ -10,6 +10,7 @@ export interface FlowEnabledRootAgentConfig {
   instructions: string;
   model: string;
   mcpServer: MCPServer;
+  additionalTools?: Tool<RuntimeContextData>[];
 }
 
 export function createFlowEnabledRootAgent(config: FlowEnabledRootAgentConfig): AIDocumentAgentGraph {
@@ -20,7 +21,7 @@ export function createFlowEnabledRootAgent(config: FlowEnabledRootAgentConfig): 
     model: config.model,
     outputType: AIDocumentRootOutputSchema,
     instructions: config.instructions,
-    tools: [createFlowAgentTool(flowAgent)],
+    tools: [createFlowAgentTool(flowAgent), ...(config.additionalTools ?? [])],
     mcpServers: [],
   });
   return { root, agents: [root, flowAgent] };

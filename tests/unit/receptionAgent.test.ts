@@ -27,7 +27,7 @@ describe('ReceptionAgent', () => {
     })).toThrow('RECEPTION_AGENT_VECTOR_STORE_IDS');
   });
 
-  it('has only the hosted file_search tool and no Flow/MCP graph', async () => {
+  it('has file_search and use_flow_capabilities while keeping MCP on FlowAgent', async () => {
     const context = buildContext();
     const graph = buildRegistry(['vs_company', 'vs_policies', 'vs_faq', 'vs_agents']).buildAIDocument('reception-agent', {
       mcpServer: createFakeMcpServer(), model: 'test-model', runtimeContext: context,
@@ -35,7 +35,10 @@ describe('ReceptionAgent', () => {
     });
     const tools = await graph.root.getAllTools(new RunContext(context));
     expect(graph.root.name).toBe('ReceptionAgent');
-    expect(graph.agents.map((agent) => agent.name)).toEqual(['ReceptionAgent']);
-    expect(tools.map((tool) => tool.name)).toEqual(['file_search']);
+    expect(graph.agents.map((agent) => agent.name)).toEqual(['ReceptionAgent', 'FlowAgent']);
+    expect(tools.map((tool) => tool.name)).toEqual(['use_flow_capabilities', 'file_search']);
+    expect((await graph.agents[1]!.getAllTools(new RunContext(context))).map((tool) => tool.name)).toEqual(expect.arrayContaining([
+      'list_flow_actions', 'describe_flow_action', 'execute_flow_action',
+    ]));
   });
 });

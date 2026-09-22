@@ -64,11 +64,21 @@ Sucesso legado:
   "IdCompany": 1003,
   "IdChat": 123,
   "IdProcessLine": 456,
+  "TurnSource": "MESSAGE",
+  "ProcessContextRevision": 4,
+  "ProcessContext": {
+    "System": {},
+    "Facts": {},
+    "BusinessReferences": {},
+    "CurrentIntent": {}
+  },
   "Messages": [{ "IdMessage": 1001, "Text": "Quero comprar uma impressora" }]
 }
 ```
 
-O Runtime cria `ExecutionUUID`, mantém a memória nativa do Agents SDK em `AIAgentSessionItem`, e devolve `Response` + `Control`. Repetições do mesmo `TurnUUID` são idempotentes.
+`TurnSource` pode ser `MESSAGE` (compatibilidade: ausência equivale a `MESSAGE`) ou `ACTIVATION`. A ativação aceita `Messages: []` e exige `ActivationContext`; o Runtime usa um item interno de sistema, nunca uma fala de usuário artificial.
+
+O Runtime cria `ExecutionUUID`, mantém a memória nativa do Agents SDK em `AIAgentSessionItem`, e devolve `Response` + `Control`. `Control.ContextUpdates` pode propor somente alterações em `Facts` e `CurrentIntent`; o Core valida e persiste o ProcessContext. Repetições do mesmo `TurnUUID` são idempotentes, inclusive quando o payload contém Activation ou uma revisão de contexto diferente.
 
 `POST /v1/agent-sessions/close` fecha a Session após confirmação do Core:
 
@@ -79,8 +89,10 @@ O Runtime cria `ExecutionUUID`, mantém a memória nativa do Agents SDK em `AIAg
 ## Arquitetura operacional
 
 - `AgentRegistry` monta agents por execução; `ExpectedOutput` não fica preso em singleton.
+- Root Agents usam as capabilities locais `use_flow_capabilities` e `use_navigation`; somente `FlowAgent` recebe MCP Flow e somente `NavigationAgent` recebe MCP Navigation.
+- `ReceptionAgent` mantém `file_search` e usa Navigation para destinos/Handoff. Sales e Support também podem usar Navigation para continuidade de ownership.
 - O handoff nativo do SDK usa `Reason` estruturado e grava somente justificativa operacional.
-- `RuntimeContext.Execution` contém os IDs vindos do Core; `Resolved` recebe apenas dados técnicos descobertos.
+- `RuntimeContext.Execution` contém os IDs, `TurnSource`, Activation e revisão vindos do Core; `ProcessContext` é readonly e `Resolved` recebe apenas dados técnicos descobertos.
 - `ToolPolicies` declara `requires` e `meta`; o MCP recebe apenas os paths necessários.
 - `AIAgentExecution` e `AIAgentExecutionLog` são persistidos através de `ExecutionLogger` e repository Drizzle.
 - `OpenAITraceId` é definido antes do runner e correlacionado com `ExecutionUUID` e `IdProcessLineFlow`.

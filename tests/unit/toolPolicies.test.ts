@@ -40,6 +40,24 @@ describe('ToolPolicies', () => {
     }
   });
 
+  it('exposes Navigation tools only to NavigationAgent and sends minimal metadata', async () => {
+    const navigationContext = {
+      Execution: { ...context.Execution, TurnUUID: '14ed24ea-0000-4000-8000-000000000001' },
+      ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+      ActivationContext: null,
+      Resolved: {},
+    };
+    for (const toolName of ['list_navigation_destinations', 'request_handoff']) {
+      expect(isToolAvailable(toolName, 'NavigationAgent', navigationContext)).toBe(true);
+      expect(isToolAvailable(toolName, 'SalesAgent', navigationContext)).toBe(false);
+      expect(isToolAvailable(toolName, 'ReceptionAgent', navigationContext)).toBe(false);
+      expect(isToolAvailable(toolName, 'FlowAgent', navigationContext)).toBe(false);
+    }
+    const resolver = (await import('../../src/mcp/toolMetaResolver.js')).createToolMetaResolver(new (await import('../../src/mcp/observability.js')).McpObservabilityRegistry());
+    const meta = await resolver({ runContext: new RunContext(navigationContext), serverName: 'fake', toolName: 'request_handoff', arguments: { DestinationRef: 'nav_sales', Reason: 'Compra', Summary: 'Cliente quer comprar' } });
+    expect(meta).toEqual({ ca: { Execution: { ExecutionUUID: 'uuid', TurnUUID: '14ed24ea-0000-4000-8000-000000000001', IdCompany: 1003, IdProcessLine: 456 } } });
+  });
+
   it('implements the fail-closed SDK callable filter', async () => {
     const filter = createToolFilter();
     const allowed = await filter({ runContext: new RunContext(context), agent: { name: 'SalesAgent' } as any, serverName: 'fake' }, { name: 'get_chat_history' } as any);

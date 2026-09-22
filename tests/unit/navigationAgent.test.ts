@@ -48,6 +48,23 @@ describe('NavigationAgent semantic boundary', () => {
     })).toMatchObject({ Status: 'HANDOFF_REQUESTED', Destination: 'Vendas', Error: null });
   });
 
+  it('returns FAILED when MCP does not provide a functional Destination', () => {
+    const context = makeContext();
+    recordNavigationToolObservation(context, 'list_navigation_destinations', {}, listResult(salesDestination), false, listResult(salesDestination));
+    recordNavigationToolObservation(context, 'request_handoff', { DestinationRef: salesDestination.DestinationRef }, {
+      Accepted: true,
+      Status: 'REQUESTED',
+    }, false, {});
+
+    expect(normalizeNavigationAgentOutput(context, {
+      Status: 'HANDOFF_REQUESTED',
+      Summary: 'Handoff solicitado.',
+      Destination: 'Vendas',
+      Clarification: null,
+      Error: null,
+    })).toMatchObject({ Status: 'FAILED', Error: { Code: 'CORE_CONTRACT_ERROR' } });
+  });
+
   it.each([
     ['CORE_CONTRACT_ERROR', 'Contrato inválido.'],
     ['NAVIGATION_DESTINATION_NOT_AVAILABLE', 'Destino indisponível.'],
@@ -125,9 +142,9 @@ describe('NavigationAgent semantic boundary', () => {
 
     const output = normalizeNavigationAgentOutput(context, {
       Status: 'HANDOFF_REQUESTED',
-      Summary: `Solicitado ${salesDestination.DestinationRef}; IdCompanyMenu=10; IdCompanyModule=20; IdModule=30.`,
+      Summary: `Solicitado ${salesDestination.DestinationRef}; IdCompanyMenu=10; IdCompanyModule=20; IdModule=30; HandoffUUID=handoff-secret; RequestUUID=request-secret.`,
       Destination: salesDestination.DestinationRef,
-      Clarification: `DestinationRef=${salesDestination.DestinationRef}`,
+      Clarification: `DestinationRef=${salesDestination.DestinationRef}; HandoffUUID=handoff-secret; RequestUUID=request-secret`,
       Error: null,
     });
     const serialized = JSON.stringify(output);
@@ -135,6 +152,10 @@ describe('NavigationAgent semantic boundary', () => {
     expect(serialized).not.toContain('IdCompanyMenu');
     expect(serialized).not.toContain('IdCompanyModule');
     expect(serialized).not.toContain('IdModule');
+    expect(serialized).not.toContain('HandoffUUID');
+    expect(serialized).not.toContain('RequestUUID');
+    expect(serialized).not.toContain('handoff-secret');
+    expect(serialized).not.toContain('request-secret');
     expect(serialized).not.toContain(salesDestination.DestinationRef);
     expect(output).toMatchObject({ Status: 'HANDOFF_REQUESTED', Destination: 'Vendas' });
     expect(NavigationAgentOutputSchema.safeParse(output).success).toBe(true);

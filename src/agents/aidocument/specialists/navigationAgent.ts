@@ -156,12 +156,16 @@ function escapeRegExp(value: string): string {
 
 function sanitizeText(value: string, destinationRefs: Iterable<string>): string {
   let sanitized = value;
+  sanitized = sanitized.replace(
+    /["']?(DestinationRef|IdCompanyMenu|IdCompanyModule|IdModule|HandoffUUID|RequestUUID)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^,;\s}\]]+)/gi,
+    'detalhe técnico removido',
+  );
   for (const destinationRef of destinationRefs) {
     sanitized = sanitized.replace(new RegExp(escapeRegExp(destinationRef), 'g'), 'destino autorizado');
   }
   return sanitized
     .replace(/\bnav(?:1)?_[A-Za-z0-9%/_.-]+\b/gi, 'destino autorizado')
-    .replace(/\b(DestinationRef|IdCompanyMenu|IdCompanyModule|IdModule|HandoffUUID)\b\s*[:=]?/gi, '')
+    .replace(/\b(DestinationRef|IdCompanyMenu|IdCompanyModule|IdModule|HandoffUUID|RequestUUID)\b\s*[:=]?/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -207,15 +211,17 @@ export function normalizeNavigationAgentOutput(
 
   if (observation?.handoff) {
     if (observation.handoff.Accepted && observation.handoff.Status === 'REQUESTED') {
+      const functionalDestination = observation.handoff.Destination?.trim();
+      if (!functionalDestination || sanitizeText(functionalDestination, destinationRefs) === 'destino autorizado') {
+        return failedOutput({ Code: 'CORE_CONTRACT_ERROR', Message: 'O Core não retornou a descrição funcional do destino solicitado.' }, undefined, destinationRefs);
+      }
       if (observation.list && observation.handoff.DestinationRef && !destinationRefs.has(observation.handoff.DestinationRef)) {
         return failedOutput({ Code: 'NAVIGATION_DESTINATION_NOT_AVAILABLE', Message: 'O destino solicitado não veio da lista autorizada.' }, undefined, destinationRefs);
       }
       return {
         ...sanitized,
         Status: 'HANDOFF_REQUESTED',
-        Destination: observation.handoff.Destination
-          ? sanitizeText(observation.handoff.Destination, destinationRefs)
-          : sanitized.Destination,
+        Destination: sanitizeText(functionalDestination, destinationRefs),
         Error: null,
       };
     }

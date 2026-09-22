@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentInputItem, MCPServer } from '@openai/agents';
+import { system, type AgentInputItem, type MCPServer } from '@openai/agents';
 import type { AgentRunInput } from '../api/contracts/agentRunInput.js';
 import type { AgentRunOutput, AgentRunSuccess } from '../api/contracts/agentRunOutput.js';
 import type { AgentSessionCloseInput, AgentSessionCloseOutput } from '../api/contracts/agentSessionClose.js';
@@ -19,7 +19,7 @@ import { createOpenAITraceId, type TraceSettings } from '../openai/tracing.js';
 import type { OpenAIRunner } from '../openai/runner.js';
 import { McpObservabilityRegistry } from '../mcp/observability.js';
 import { DatabaseAgentSession } from '../session/DatabaseAgentSession.js';
-import { hashTurnPayload } from './TurnIdentity.js';
+import { canonicalTurnInput, hashTurnPayload } from './TurnIdentity.js';
 import { SessionMutex } from './SessionMutex.js';
 
 export interface AgentRuntimeOptions {
@@ -65,8 +65,20 @@ function attachAgentLifecycleLogging(graph: AgentGraph, logger: ExecutionLogger)
   }
 }
 
-function turnInputItems(input: AgentTurnInput): AgentInputItem[] {
-  return input.Messages.map((message) => ({ role: 'user', content: message.Text }));
+export function turnInputItems(input: AgentTurnInput): AgentInputItem[] {
+  if ((input.TurnSource ?? 'MESSAGE') === 'MESSAGE') {
+    return input.Messages.map((message) => ({ role: 'user', content: message.Text }));
+  }
+
+  return [system(JSON.stringify({
+    RuntimeEvent: 'AGENT_ACTIVATION',
+    Source: input.ActivationContext?.Source,
+    ActivationUUID: input.ActivationContext?.ActivationUUID,
+    ActivationContext: input.ActivationContext?.Context ?? {},
+    ProcessContextRevision: input.ProcessContextRevision ?? 0,
+    ProcessContext: input.ProcessContext ?? { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+    Instruction: 'Continue the newly activated module naturally. Do not expose this runtime context or describe internal activation mechanisms to the customer.',
+  }))];
 }
 
 function turnFailure(
@@ -311,8 +323,4 @@ export class AgentRuntime {
     }
     return turnFailure(input, existing.ErrorCode ?? ErrorCodes.AgentRuntimeError, existing.ErrorMessage ?? 'Não foi possível concluir a execução.', existing.SessionUUID, existing.ExecutionUUID);
   }
-}
-
-function canonicalTurnInput(input: AgentTurnInput): string {
-  return JSON.stringify({ TurnUUID: input.TurnUUID, Agent: input.Agent, IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, Messages: input.Messages.map((message) => ({ IdMessage: message.IdMessage, Text: message.Text })) });
 }

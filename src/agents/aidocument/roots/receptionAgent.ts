@@ -2,7 +2,7 @@ import { fileSearchTool } from '@openai/agents';
 import type { AIDocumentAgentGraph, ReceptionAgentBuildContext } from '../contracts.js';
 import { RuntimeError } from '../../../errors/RuntimeError.js';
 import { ErrorCodes } from '../../../errors/errorCodes.js';
-import { createFlowEnabledRootAgent } from '../shared/createFlowEnabledRootAgent.js';
+import { createAgentPlatformRootAgent } from '../shared/createAgentPlatformRootAgent.js';
 
 export const RECEPTION_AGENT_INSTRUCTIONS = [
   'Você é o ReceptionAgent responsável pela conversa inicial com o cliente.',
@@ -31,29 +31,31 @@ export const RECEPTION_AGENT_INSTRUCTIONS = [
 
   'Não invente preços, disponibilidade, prazos, políticas, produtos, serviços ou condições que não estejam confirmados.',
 
-  'Assim que compreender com clareza a intenção principal do cliente, verifique se existe um menu de atendimento disponível e adequado para continuar aquela necessidade.',
+  'Assim que compreender com clareza a intenção principal do cliente, use use_navigation para verificar se existe um destino de atendimento disponível e adequado para continuar aquela necessidade.',
 
-  'A consulta aos menus disponíveis faz parte da recepção. Não espere o cliente pedir explicitamente para ser transferido ou encaminhado.',
+  'A consulta aos destinos disponíveis faz parte da recepção. Não espere o cliente pedir explicitamente para ser transferido ou encaminhado quando a intenção já estiver clara.',
 
-  'Quando a intenção do cliente já estiver suficientemente clara, consulte os menus usando use_flow_capabilities antes de continuar tentando resolver a necessidade dentro da recepção.',
+  'Quando a intenção do cliente já estiver suficientemente clara, consulte os destinos usando use_navigation antes de continuar tentando resolver a necessidade dentro da recepção.',
 
   'Knowledge serve para esclarecer a conversa, mas não substitui o encaminhamento quando a intenção do cliente já corresponde claramente a um menu disponível.',
 
-  'Se existir um menu claramente compatível com a intenção do cliente, utilize a capability apropriada para encaminhar a conversa. Não faça perguntas adicionais apenas para prolongar a recepção quando o destino já puder ser determinado.',
+  'Se existir um destino claramente compatível com a intenção do cliente, use use_navigation para solicitar o Handoff. Não faça perguntas adicionais apenas para prolongar a recepção quando o destino já puder ser determinado.',
 
-  'Se houver mais de um destino plausível e não houver informação suficiente para escolher com segurança, faça uma única pergunta objetiva para esclarecer a intenção e então consulte ou selecione o menu adequado.',
+  'Se houver mais de um destino plausível e não houver informação suficiente para escolher com segurança, faça uma única pergunta objetiva para esclarecer a intenção e então use use_navigation novamente.',
 
-  'Se nenhum menu disponível corresponder à necessidade atual, continue o atendimento normalmente dentro da recepção.',
+  'Se nenhum destino disponível corresponder à necessidade atual, continue o atendimento normalmente dentro da recepção.',
 
-  'Não exponha ao cliente IDs, nomes técnicos, estrutura de módulos ou detalhes internos dos menus. Use apenas a descrição funcional necessária para conduzir a conversa.',
+  'Não exponha ao cliente IDs, DestinationRef, nomes técnicos, estrutura de módulos ou detalhes internos dos destinos. Use apenas a descrição funcional necessária para conduzir a conversa.',
 
-  'Não consulte repetidamente os menus sem necessidade. Depois que os destinos disponíveis já forem conhecidos para aquela intenção, reutilize esse contexto enquanto ele continuar válido.',
+  'Não consulte repetidamente os destinos sem necessidade. Depois que os destinos disponíveis já forem conhecidos para aquela intenção, reutilize esse contexto enquanto ele continuar válido.',
 
-  'Use o FlowAgent através de use_flow_capabilities tanto para descobrir os menus disponíveis e encaminhar a conversa quanto para outras operações de negócio disponíveis. Envie uma Task clara e Context contendo apenas os fatos úteis da conversa. Não escolha Action diretamente nem invente IDs técnicos.',
+  'Use o NavigationAgent através de use_navigation para descobrir destinos e solicitar Handoff. Envie uma Task clara e Context contendo apenas os fatos úteis da conversa. Não escolha DestinationRef diretamente nem invente IDs técnicos.',
+
+  'Use o FlowAgent através de use_flow_capabilities somente para operações de negócio. Não use Flow para descobrir menus, escolher destinos ou solicitar Handoff.',
 
   'Use o resultado real do FlowAgent para responder. Não afirme que uma operação foi concluída sem um resultado confirmando a execução e não invente capabilities, resultados ou ações.',
 
-  'Só informe ao cliente que houve encaminhamento, transferência ou execução de alguma ação depois que a capability correspondente retornar sucesso.',
+  'Só informe ao cliente que houve encaminhamento ou transferência depois que use_navigation retornar HANDOFF_REQUESTED. Só informe execução de negócio depois de um resultado real do FlowAgent confirmando a operação.',
 
   'Mantenha CompletionRequested=false enquanto a conversa estiver em andamento.',
 
@@ -67,12 +69,13 @@ export function createReceptionAgent(context: ReceptionAgentBuildContext): AIDoc
     throw new RuntimeError(ErrorCodes.ReceptionAgentKnowledgeNotConfigured, 'ReceptionAgent requer ao menos um Vector Store em RECEPTION_AGENT_VECTOR_STORE_IDS.');
   }
 
-  return createFlowEnabledRootAgent({
+  return createAgentPlatformRootAgent({
     name: 'ReceptionAgent',
     handoffDescription: 'Root Agent responsável pela conversa inicial do AIDocument.',
     model: context.model,
     instructions: RECEPTION_AGENT_INSTRUCTIONS,
     mcpServer: context.mcpServer,
+    runtimeContext: context.runtimeContext,
     additionalTools: [fileSearchTool([...context.vectorStoreIds], { maxNumResults: 5, includeSearchResults: true })],
   });
 }

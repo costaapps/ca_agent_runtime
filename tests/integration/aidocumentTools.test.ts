@@ -7,8 +7,8 @@ import { ExecutionLogger } from '../../src/tracing/ExecutionLogger.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { createAIDocumentRuntimeContext } from '../../src/runtime/RuntimeContext.js';
 
-describe('AIDocument FlowAgent tool boundary', () => {
-  it('exposes use_flow_capabilities to roots while exposing Flow tools only to FlowAgent', async () => {
+describe('Agent Platform specialist tool boundaries', () => {
+  it('exposes local Flow and Navigation capabilities while isolating both MCP specialists', async () => {
     const context = createAIDocumentRuntimeContext({
       TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
       Messages: [{ IdMessage: 1001, Text: 'Execute a tarefa' }],
@@ -21,15 +21,18 @@ describe('AIDocument FlowAgent tool boundary', () => {
     const rootTools = await graph.root.getAllTools(runContext);
     const flowTools = await graph.agents[1]!.getAllTools(runContext);
 
-    expect(rootTools.map((tool) => tool.name)).toEqual(['use_flow_capabilities']);
+    expect(rootTools.map((tool) => tool.name)).toEqual(['use_flow_capabilities', 'use_navigation']);
     expect(rootTools.map((tool) => tool.name)).not.toContain('list_flow_actions');
     expect(rootTools.map((tool) => tool.name)).not.toContain('describe_flow_action');
     expect(rootTools.map((tool) => tool.name)).not.toContain('execute_flow_action');
     expect(flowTools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['list_flow_actions', 'describe_flow_action', 'execute_flow_action']));
     expect(flowTools.map((tool) => tool.name)).not.toContain('get_products');
+    const navigationTools = await graph.agents[2]!.getAllTools(runContext);
+    expect(navigationTools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['list_navigation_destinations', 'request_handoff']));
+    expect(navigationTools.map((tool) => tool.name)).not.toContain('list_flow_actions');
   });
 
-  it('keeps SupportAgent Flow-only and gives ReceptionAgent Knowledge plus Flow delegation', async () => {
+  it('gives Support and Reception the local Navigation capability without direct MCP access', async () => {
     const context = createAIDocumentRuntimeContext({
       TurnUUID: '14ed24ea-0000-4000-8000-000000000002', Agent: 'support-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 457,
       Messages: [{ IdMessage: 1002, Text: 'Preciso de suporte' }],
@@ -43,11 +46,14 @@ describe('AIDocument FlowAgent tool boundary', () => {
     const reception = registry.buildAIDocument('reception-agent', { mcpServer: server, model: 'test-model', runtimeContext: context, logger });
     const runContext = new RunContext(context);
 
-    expect((await support.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_flow_capabilities']);
-    expect((await reception.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_flow_capabilities', 'file_search']);
-    expect(reception.agents.map((agent) => agent.name)).toEqual(['ReceptionAgent', 'FlowAgent']);
+    expect((await support.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_flow_capabilities', 'use_navigation']);
+    expect((await reception.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_flow_capabilities', 'use_navigation', 'file_search']);
+    expect(reception.agents.map((agent) => agent.name)).toEqual(['ReceptionAgent', 'FlowAgent', 'NavigationAgent']);
     expect((await reception.agents[1]!.getAllTools(runContext)).map((tool) => tool.name)).toEqual(expect.arrayContaining([
       'list_flow_actions', 'describe_flow_action', 'execute_flow_action',
+    ]));
+    expect((await reception.agents[2]!.getAllTools(runContext)).map((tool) => tool.name)).toEqual(expect.arrayContaining([
+      'list_navigation_destinations', 'request_handoff',
     ]));
   });
 });

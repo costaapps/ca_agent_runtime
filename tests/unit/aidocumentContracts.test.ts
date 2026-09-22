@@ -12,8 +12,45 @@ describe('AIDocument contracts', () => {
       TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: '1003', IdChat: 123, IdProcessLine: 456,
       Messages: [{ IdMessage: 1001, Text: 'Quero comprar' }],
     }).success).toBe(true);
+    const legacy = AgentTurnInputSchema.parse({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+      Messages: [{ IdMessage: 1001, Text: 'Quero comprar' }],
+    });
+    expect(legacy).toMatchObject({ TurnSource: 'MESSAGE', ProcessContextRevision: 0, ActivationContext: null });
+    expect(AgentTurnInputSchema.safeParse({ ...legacy, Messages: [] }).success).toBe(false);
+    expect(AgentTurnInputSchema.safeParse({
+      ...legacy,
+      TurnSource: 'ACTIVATION',
+      Messages: [],
+      ActivationContext: { ActivationUUID: 'activation-1', Source: 'HANDOFF', Context: { Summary: 'Cliente escolheu vendas' } },
+    }).success).toBe(true);
+    expect(AgentTurnInputSchema.safeParse({ ...legacy, TurnSource: 'ACTIVATION', Messages: [] }).success).toBe(false);
     expect(AIDocumentRootOutputSchema.safeParse({ Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }).success).toBe(true);
     expect(AIDocumentRootOutputSchema.safeParse({ Response: 'Ok', Control: { CompletionRequested: 'false' } }).success).toBe(false);
+  });
+
+  it('restricts ContextUpdates to Facts and CurrentIntent', () => {
+    const valid = AIDocumentRootOutputSchema.safeParse({
+      Response: 'Entendi.',
+      Control: {
+        CompletionRequested: false,
+        Reason: null,
+        ContextUpdates: [
+          { Namespace: 'Facts', Operation: 'SET', Key: 'ProductInterest', Value: 'Memória RAM', Source: 'USER' },
+          { Namespace: 'CurrentIntent', Operation: 'SET', Key: 'Intent', Value: 'PURCHASE', Source: 'AGENT' },
+          { Namespace: 'Facts', Operation: 'REMOVE', Key: 'OldFact', Value: null, Source: 'USER' },
+        ],
+      },
+    });
+    expect(valid.success).toBe(true);
+    expect(AIDocumentRootOutputSchema.safeParse({
+      Response: 'Não.',
+      Control: { CompletionRequested: false, Reason: null, ContextUpdates: [{ Namespace: 'BusinessReferences', Operation: 'SET', Key: 'IdItem', Value: '10', Source: 'AGENT' }] },
+    }).success).toBe(false);
+    expect(AIDocumentRootOutputSchema.safeParse({
+      Response: 'Não.',
+      Control: { CompletionRequested: false, Reason: null, ContextUpdates: [{ Namespace: 'Facts', Operation: 'SET', Key: 'Fact', Value: 'x', Source: 'AGENT' }] },
+    }).success).toBe(false);
   });
 
   it('validates FlowAgent Task + optional Context and result statuses', () => {

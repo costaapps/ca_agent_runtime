@@ -23,6 +23,10 @@ function message(text: string): ModelResponse {
   return { usage: new Usage({ requests: 1, inputTokens: 1, outputTokens: 1, totalTokens: 2 }), output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text }] }] as any };
 }
 
+function rootOutput(response: string): string {
+  return JSON.stringify({ Response: response, Control: { CompletionRequested: false, Reason: null, ContextUpdates: [] } });
+}
+
 class DeterministicAIDocumentModel implements Model {
   requests: ModelRequest[] = [];
 
@@ -48,9 +52,9 @@ class DeterministicAIDocumentModel implements Model {
     }
     if (toolNames.includes('use_flow_capabilities')) {
       if (!hasToolResult(request, 'use_flow_capabilities')) return functionCall('use_flow_capabilities', 'root-flow', { Task: 'Consulte os dados do cliente atual.', Context: 'A tarefa deve usar a capability publicada.' });
-      return message(JSON.stringify({ Response: this.flowFailure ? 'A capability não pôde ser executada.' : 'Consultei a capability e encontrei o cliente C000123.', Control: { CompletionRequested: false, Reason: null } }));
+      return message(rootOutput(this.flowFailure ? 'A capability não pôde ser executada.' : 'Consultei a capability e encontrei o cliente C000123.'));
     }
-    return message(JSON.stringify({ Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }));
+    return message(rootOutput('Ok'));
   }
 
   getStreamedResponse(): AsyncIterable<any> {

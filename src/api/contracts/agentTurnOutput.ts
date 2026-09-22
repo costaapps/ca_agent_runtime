@@ -6,7 +6,6 @@ const ContextValueSchema = z.union([
   z.boolean(),
   z.null(),
   z.array(z.string()),
-  z.record(z.string(), z.string()),
 ]);
 
 const ContextUpdateBaseSchema = {

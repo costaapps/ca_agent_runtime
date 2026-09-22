@@ -193,4 +193,29 @@ describe('AIDocument Agent Runtime', () => {
     expect(second).toEqual(first);
     expect(calls).toBe(1);
   });
+
+  it('runs ACTIVATION without creating a fake user message and exposes its contexts', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    let receivedInput: unknown;
+    let receivedContext: RuntimeContextData | undefined;
+    const runtime = makeRuntime(repository, sessionRepository, {
+      async run(agent: Agent<RuntimeContextData, any>, input: unknown, context: RuntimeContextData) {
+        receivedInput = input;
+        receivedContext = context;
+        return { finalOutput: { Response: 'Atendimento retomado.', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+      },
+    });
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000010', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 460,
+      TurnSource: 'ACTIVATION', Messages: [], ProcessContextRevision: 7,
+      ProcessContext: { System: {}, Facts: { ProductInterest: 'RAM' }, BusinessReferences: {}, CurrentIntent: {} },
+      ActivationContext: { ActivationUUID: 'activation-10', Source: 'HANDOFF', Context: { Summary: 'Cliente foi direcionado' } },
+    });
+    expect(result.statusCode).toBe(200);
+    expect(JSON.stringify(receivedInput)).toContain('AGENT_ACTIVATION');
+    expect(JSON.stringify(receivedInput)).not.toContain('role":"user"');
+    expect(receivedContext?.Execution).toMatchObject({ TurnSource: 'ACTIVATION', ProcessContextRevision: 7, ActivationUUID: 'activation-10' });
+    expect(receivedContext?.ProcessContext).toMatchObject({ Facts: { ProductInterest: 'RAM' } });
+  });
 });

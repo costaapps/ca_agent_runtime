@@ -37,7 +37,7 @@ export const RECEPTION_AGENT_INSTRUCTIONS = [
 
   'Quando a intenção do cliente já estiver suficientemente clara, consulte os destinos usando use_navigation antes de continuar tentando resolver a necessidade dentro da recepção.',
 
-  'Knowledge serve para esclarecer a conversa, mas não substitui o encaminhamento quando a intenção do cliente já corresponde claramente a um menu disponível.',
+  'Knowledge serve para esclarecer a conversa, mas não substitui o encaminhamento quando a intenção do cliente já corresponde claramente a um destino disponível.',
 
   'Se existir um destino claramente compatível com a intenção do cliente, use use_navigation para solicitar o Handoff. Não faça perguntas adicionais apenas para prolongar a recepção quando o destino já puder ser determinado.',
 

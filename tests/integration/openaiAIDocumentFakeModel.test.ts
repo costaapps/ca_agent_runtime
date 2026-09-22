@@ -62,6 +62,29 @@ class DeterministicAIDocumentModel implements Model {
   }
 }
 
+class NavigationDeterministicModel implements Model {
+  requests: ModelRequest[] = [];
+
+  async getResponse(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    const toolNames = request.tools.map((tool) => tool.name);
+    if (toolNames.includes('list_navigation_destinations')) {
+      if (!hasToolResult(request, 'list_navigation_destinations')) return functionCall('list_navigation_destinations', 'navigation-list', {});
+      if (!hasToolResult(request, 'request_handoff')) return functionCall('request_handoff', 'navigation-request', { DestinationRef: 'nav_sales', Reason: 'Intenção comercial inequívoca.', Summary: 'Cliente deseja comprar.' });
+      return message(JSON.stringify({ Status: 'HANDOFF_REQUESTED', Summary: 'Handoff solicitado para Vendas.', Destination: 'Vendas', Clarification: null, Error: null }));
+    }
+    if (toolNames.includes('use_navigation')) {
+      if (!hasToolResult(request, 'use_navigation')) return functionCall('use_navigation', 'root-navigation', { Task: 'Encontrar o destino comercial para a compra.', Context: 'O cliente quer comprar um produto.' });
+      return message(rootOutput('Vou direcionar seu atendimento para o destino adequado.'));
+    }
+    return message(rootOutput('Ok'));
+  }
+
+  getStreamedResponse(): AsyncIterable<any> {
+    throw new Error('stream não utilizado neste teste');
+  }
+}
+
 function createTestRuntime(model: DeterministicAIDocumentModel, server: ReturnType<typeof createFakeMcpServer>, repository: MemoryRepository, sessionRepository: MemorySessionRepository) {
   const observability = new McpObservabilityRegistry();
   const tracker = new ToolCallTracker();
@@ -136,5 +159,27 @@ describe('AIDocument full Agents SDK path with fake model', () => {
     expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_RESULT' && entry.data.ToolName === 'execute_flow_action')).toHaveLength(1);
     expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_END')).toBe(true);
     expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_ERROR')).toBe(false);
+  });
+
+  it('runs RootAgent -> use_navigation -> NavigationAgent -> list/request_handoff', async () => {
+    const model = new NavigationDeterministicModel();
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const server = createFakeMcpServer();
+    const { runtime } = createTestRuntime(model as any, server, repository, sessionRepository);
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000003', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 458,
+      Messages: [{ IdMessage: 1003, Text: 'Quero comprar um produto.' }],
+    });
+
+    expect(result).toMatchObject({ statusCode: 200, response: { Success: true, Response: 'Vou direcionar seu atendimento para o destino adequado.' } });
+    expect(model.requests.some((request) => request.tools.some((tool) => tool.name === 'use_navigation'))).toBe(true);
+    expect(model.requests.some((request) => request.tools.some((tool) => tool.name === 'list_navigation_destinations'))).toBe(true);
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL').map((entry) => entry.data.ToolName)).toEqual(['list_navigation_destinations', 'request_handoff']);
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_RESULT').map((entry) => entry.data.ToolName)).toEqual(['list_navigation_destinations', 'request_handoff']);
+    const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
+    const navigationResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_navigation') as any;
+    expect(JSON.parse(navigationResult.output.text)).toMatchObject({ Status: 'HANDOFF_REQUESTED', Destination: 'Vendas' });
   });
 });

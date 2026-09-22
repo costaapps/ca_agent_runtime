@@ -226,7 +226,7 @@ export class AgentRuntime {
 
       session = await sessionRepository.findByProcessLine(input.IdCompany, input.IdProcessLine);
       if (!session) {
-        if (!this.options.registry.hasAIDocument(input.Agent)) return turnFailure(input, ErrorCodes.AgentNotFound, `Agent '${input.Agent}' não encontrado.`);
+        if (!this.options.registry.hasHostedAgent(input.Agent)) return turnFailure(input, ErrorCodes.AgentNotFound, `Agent '${input.Agent}' não encontrado.`);
         const now = new Date();
         session = await sessionRepository.createSession({ SessionUUID: randomUUID(), IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, RootAgent: input.Agent, Status: 'OPEN', StartedAt: now, LastActivityAt: now, ClosedAt: null });
       }
@@ -265,7 +265,7 @@ export class AgentRuntime {
             `Agent solicitado '${input.Agent}' ignorado; Session permanece em '${session.RootAgent}'.`,
           );
         }
-        const graph = this.options.registry.buildAIDocument(session.RootAgent, { mcpServer: this.options.mcpServer, model: this.options.model, runtimeContext: context, logger });
+        const graph = this.options.registry.buildHostedAgent(session.RootAgent, { mcpServer: this.options.mcpServer, model: this.options.model, runtimeContext: context, logger });
         for (const agent of graph.agents) {
           agent.on('agent_start', (_runContext, startedAgent) => { void logger.agentStart(startedAgent.name).catch(() => undefined); });
         }
@@ -279,6 +279,9 @@ export class AgentRuntime {
           idProcessLineFlow: null,
           sessionUUID: session.SessionUUID,
           turnUUID: input.TurnUUID,
+          turnSource: input.TurnSource ?? 'MESSAGE',
+          processContextRevision: input.ProcessContextRevision ?? 0,
+          activationUUID: input.ActivationContext?.ActivationUUID,
           rootAgent: session.RootAgent,
           traceId: openAITraceId,
         };

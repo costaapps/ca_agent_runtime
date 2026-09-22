@@ -92,6 +92,16 @@ describe('HTTP API', () => {
       });
       expect(activation.status).toBe(200);
 
+      const incoherentActivation = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          TurnUUID: '14ed24ea-0000-4000-8000-000000000003', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+          TurnSource: 'ACTIVATION', Messages: [{ IdMessage: 2, Text: 'não deve ser fala' }],
+          ActivationContext: { ActivationUUID: 'activation-2', Source: 'HANDOFF', Context: {} },
+        }),
+      });
+      expect(incoherentActivation.status).toBe(400);
+
       const close = await fetch(`http://127.0.0.1:${port}/v1/agent-sessions/close`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ IdCompany: 1003, IdProcessLine: 456, Reason: 'PROCESS_LINE_CLOSED' }),
       });

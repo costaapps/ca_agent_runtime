@@ -104,6 +104,39 @@ describe('AIDocument Agent Runtime', () => {
     expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_WARNING' && entry.data.ErrorMessage?.startsWith('ROOT_AGENT_FROZEN:'))).toBe(true);
   });
 
+  it('creates a new Session and Root when the Core opens a new ProcessLine', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const runtime = new AgentRuntime({
+      repository,
+      sessionRepository,
+      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      runner: {
+        async run(agent: Agent<RuntimeContextData, any>) {
+          return { finalOutput: { Response: agent.name, Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+        },
+      },
+      mcpServer: createFakeMcpServer(),
+      observability: new McpObservabilityRegistry(),
+      model: 'test-model',
+      tracingEnabled: true,
+      traceIncludeSensitiveData: false,
+    });
+
+    const reception = await runtime.runTurn({ ...makeTurn({ Agent: 'reception-agent', Text: 'Olá' }), IdProcessLine: 10 });
+    const sales = await runtime.runTurn({ ...makeTurn({ Agent: 'sales-agent', TurnUUID: '14ed24ea-0000-4000-8000-000000000020', IdMessage: 20, Text: 'Quero comprar' }), IdProcessLine: 11 });
+    const frozen = await runtime.runTurn({ ...makeTurn({ Agent: 'support-agent', TurnUUID: '14ed24ea-0000-4000-8000-000000000021', IdMessage: 21, Text: 'Ainda sobre a compra' }), IdProcessLine: 11 });
+
+    expect(reception.response).toMatchObject({ Agent: 'reception-agent', Response: 'ReceptionAgent' });
+    expect(sales.response).toMatchObject({ Agent: 'sales-agent', Response: 'SalesAgent' });
+    expect(frozen.response).toMatchObject({ Agent: 'sales-agent', Response: 'SalesAgent' });
+    expect(sessionRepository.sessions).toHaveLength(2);
+    expect(sessionRepository.sessions.map((session) => [session.IdProcessLine, session.RootAgent])).toEqual([
+      [10, 'reception-agent'],
+      [11, 'sales-agent'],
+    ]);
+  });
+
   it('rejects a reused TurnUUID before creating a Session for another ProcessLine', async () => {
     const repository = new MemoryRepository();
     const sessionRepository = new MemorySessionRepository(repository);
@@ -217,5 +250,90 @@ describe('AIDocument Agent Runtime', () => {
     expect(JSON.stringify(receivedInput)).not.toContain('role":"user"');
     expect(receivedContext?.Execution).toMatchObject({ TurnSource: 'ACTIVATION', ProcessContextRevision: 7, ActivationUUID: 'activation-10' });
     expect(receivedContext?.ProcessContext).toMatchObject({ Facts: { ProductInterest: 'RAM' } });
+  });
+
+  it.each(['MODULE_COMPLETED', 'QUEUED', 'SEQUENTIAL'] as const)('accepts %s activation without a customer Message', async (source) => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    let receivedInput: unknown;
+    const agent = source === 'MODULE_COMPLETED' ? 'reception-agent' : 'sales-agent';
+    const runtime = new AgentRuntime({
+      repository,
+      sessionRepository,
+      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      runner: {
+        async run(_agent: Agent<RuntimeContextData, any>, input: unknown) {
+          receivedInput = input;
+          return { finalOutput: { Response: 'Ativação processada.', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: 'ReceptionAgent' } };
+        },
+      },
+      mcpServer: createFakeMcpServer(),
+      observability: new McpObservabilityRegistry(),
+      model: 'test-model',
+      tracingEnabled: true,
+      traceIncludeSensitiveData: false,
+    });
+
+    const result = await runtime.runTurn({
+      TurnUUID: `14ed24ea-0000-4000-8000-${source === 'MODULE_COMPLETED' ? '000000000013' : source === 'QUEUED' ? '000000000014' : '000000000015'}`,
+      Agent: agent,
+      IdCompany: 1003,
+      IdChat: 123,
+      IdProcessLine: source === 'MODULE_COMPLETED' ? 462 : source === 'QUEUED' ? 463 : 464,
+      TurnSource: 'ACTIVATION',
+      Messages: [],
+      ProcessContextRevision: 3,
+      ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+      ActivationContext: { ActivationUUID: `activation-${source.toLowerCase()}`, Source: source, Context: { Summary: source } },
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(JSON.stringify(receivedInput)).toContain('AGENT_ACTIVATION');
+    expect(JSON.stringify(receivedInput)).not.toContain('role":"user"');
+    expect(sessionRepository.sessions[0]).toMatchObject({ IdProcessLine: source === 'MODULE_COMPLETED' ? 462 : source === 'QUEUED' ? 463 : 464, RootAgent: agent });
+  });
+
+  it('rejects an ACTIVATION that carries a real user Message before creating a Session', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const runtime = makeRuntime(repository, sessionRepository, {
+      async run() {
+        throw new Error('não deveria executar');
+      },
+    });
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000011', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 461,
+      TurnSource: 'ACTIVATION', Messages: [{ IdMessage: 1005, Text: 'fala real' }],
+      ActivationContext: { ActivationUUID: 'activation-11', Source: 'HANDOFF', Context: {} },
+    });
+
+    expect(result).toMatchObject({ statusCode: 400, response: { Success: false, Error: { Code: 'INVALID_REQUEST' } } });
+    expect(sessionRepository.sessions).toHaveLength(0);
+    expect(repository.executions).toHaveLength(0);
+  });
+
+  it('passes the current Core ProcessContext view on every turn instead of inferring it from Session memory', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const contexts: Array<Record<string, unknown>> = [];
+    const runtime = makeRuntime(repository, sessionRepository, {
+      async run(_agent: Agent<RuntimeContextData, any>, _input: unknown, context: RuntimeContextData) {
+        contexts.push(context.ProcessContext);
+        return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: 'SalesAgent' } };
+      },
+    });
+
+    await runtime.runTurn({
+      ...makeTurn(), ProcessContextRevision: 1,
+      ProcessContext: { System: {}, Facts: { ProductInterest: 'RAM' }, BusinessReferences: {}, CurrentIntent: {} },
+    });
+    await runtime.runTurn({
+      ...makeTurn({ TurnUUID: '14ed24ea-0000-4000-8000-000000000012', IdMessage: 1006, Text: 'Agora é SSD' }), ProcessContextRevision: 2,
+      ProcessContext: { System: {}, Facts: { ProductInterest: 'SSD' }, BusinessReferences: { IdItem: 20 }, CurrentIntent: { Type: 'PRODUCT_PURCHASE' } },
+    });
+
+    expect(contexts[0]).toMatchObject({ Facts: { ProductInterest: 'RAM' }, BusinessReferences: {} });
+    expect(contexts[1]).toMatchObject({ Facts: { ProductInterest: 'SSD' }, BusinessReferences: { IdItem: 20 }, CurrentIntent: { Type: 'PRODUCT_PURCHASE' } });
   });
 });

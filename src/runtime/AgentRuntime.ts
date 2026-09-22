@@ -3,7 +3,7 @@ import { system, type AgentInputItem, type MCPServer } from '@openai/agents';
 import type { AgentRunInput } from '../api/contracts/agentRunInput.js';
 import type { AgentRunOutput, AgentRunSuccess } from '../api/contracts/agentRunOutput.js';
 import type { AgentSessionCloseInput, AgentSessionCloseOutput } from '../api/contracts/agentSessionClose.js';
-import type { AgentTurnInput } from '../api/contracts/agentTurnInput.js';
+import { AgentTurnInputSchema, type AgentTurnInput } from '../api/contracts/agentTurnInput.js';
 import { AIDocumentRootOutputSchema, type AgentTurnFailure, type AgentTurnOutput, type AgentTurnSuccess } from '../api/contracts/agentTurnOutput.js';
 import { AgentNotFoundError, RuntimeError, asRuntimeError } from '../errors/RuntimeError.js';
 import { ErrorCodes } from '../errors/errorCodes.js';
@@ -42,7 +42,7 @@ export interface AgentRuntimeRunResult {
 }
 
 export interface AgentTurnRuntimeResult {
-  statusCode: 200 | 409 | 422 | 500;
+  statusCode: 200 | 400 | 409 | 422 | 500;
   response: AgentTurnOutput;
 }
 
@@ -95,7 +95,7 @@ function turnFailure(
     ...(executionUUID ? { ExecutionUUID: executionUUID } : {}),
     Error: { Code: code, Message: message },
   };
-  const statusCode = code === ErrorCodes.AgentNotFound ? 422 : code === ErrorCodes.TurnIdempotencyConflict || code === ErrorCodes.TurnInProgress || code === ErrorCodes.AgentSessionClosed ? 409 : 500;
+  const statusCode = code === ErrorCodes.InvalidRequest ? 400 : code === ErrorCodes.AgentNotFound ? 422 : code === ErrorCodes.TurnIdempotencyConflict || code === ErrorCodes.TurnInProgress || code === ErrorCodes.AgentSessionClosed ? 409 : 500;
   return { statusCode, response };
 }
 
@@ -183,6 +183,9 @@ export class AgentRuntime {
   }
 
   async runTurn(input: AgentTurnInput): Promise<AgentTurnRuntimeResult> {
+    const parsed = AgentTurnInputSchema.safeParse(input);
+    if (!parsed.success) return turnFailure(input, ErrorCodes.InvalidRequest, 'Payload de Turn inválido.');
+    input = parsed.data;
     const sessionRepository = this.options.sessionRepository;
     if (!sessionRepository) return turnFailure(input, ErrorCodes.PersistenceError, 'Persistência de Session não configurada.');
     const payloadHash = hashTurnPayload(input);

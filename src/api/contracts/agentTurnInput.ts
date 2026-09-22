@@ -48,6 +48,10 @@ export const AgentTurnInputSchema = z.object({
   if (value.TurnSource === 'ACTIVATION' && value.ActivationContext === null) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['ActivationContext'], message: 'ACTIVATION exige ActivationContext.' });
   }
+
+  if (value.TurnSource === 'ACTIVATION' && value.Messages.length > 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['Messages'], message: 'ACTIVATION exige Messages vazio.' });
+  }
 });
 
 export type AgentTurnMessage = z.infer<typeof AgentTurnMessageSchema>;

@@ -25,8 +25,8 @@ export interface RuntimeExecutionContext {
 
 export interface RuntimeContextData {
   readonly Execution: RuntimeExecutionContext;
-  readonly ProcessContext?: RuntimeProcessContext;
-  readonly ActivationContext?: ActivationContext | null;
+  readonly ProcessContext: RuntimeProcessContext;
+  readonly ActivationContext: ActivationContext | null;
   Resolved: Record<string, unknown>;
 }
 

@@ -29,6 +29,8 @@ describe('ToolPolicies', () => {
   it('exposes Flow tools only to FlowAgent', async () => {
     const flowContext = {
       Execution: { ...context.Execution, TurnUUID: '14ed24ea-0000-4000-8000-000000000001' },
+      ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+      ActivationContext: null,
       Resolved: {},
     };
     for (const toolName of ['list_flow_actions', 'describe_flow_action', 'execute_flow_action']) {
@@ -63,6 +65,8 @@ describe('ToolPolicies', () => {
     const allowed = await filter({ runContext: new RunContext(context), agent: { name: 'SalesAgent' } as any, serverName: 'fake' }, { name: 'get_chat_history' } as any);
     const flowContext = {
       Execution: { ...context.Execution, TurnUUID: '14ed24ea-0000-4000-8000-000000000001' },
+      ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+      ActivationContext: null,
       Resolved: {},
     };
     const flowAllowed = await filter({ runContext: new RunContext(flowContext), agent: { name: 'FlowAgent' } as any, serverName: 'fake' }, { name: 'list_flow_actions' } as any);
@@ -73,6 +77,8 @@ describe('ToolPolicies', () => {
   it('requires the AIDocument execution context for Flow tools', async () => {
     const flowContext = {
       Execution: { ...context.Execution, TurnUUID: '14ed24ea-0000-4000-8000-000000000001' },
+      ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+      ActivationContext: null,
       Resolved: {},
     };
     for (const toolName of ['list_flow_actions', 'describe_flow_action', 'execute_flow_action']) {

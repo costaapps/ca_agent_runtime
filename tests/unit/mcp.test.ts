@@ -163,4 +163,20 @@ describe('MCP context integration', () => {
     })).resolves.toBeUndefined();
     expect(context.Resolved).toEqual({});
   });
+
+  it('keeps Navigation tool errors model-visible for NavigationAgent', async () => {
+    const context = makeContext();
+    const registry = new McpObservabilityRegistry();
+    const tracker = new ToolCallTracker();
+    const extractor = createCustomDataExtractor(registry, tracker);
+
+    await expect(extractor({
+      runContext: new RunContext(context), serverName: 'fake', toolName: 'request_handoff', toolDisplayName: 'request_handoff',
+      arguments: { DestinationRef: 'nav1_opaque', Reason: 'Compra', Summary: 'Cliente quer comprar.' },
+      resultMeta: undefined,
+      structuredContent: { Code: 'NAVIGATION_DESTINATION_NOT_AVAILABLE' },
+      isError: true,
+      toolOutput: 'O destino não está mais disponível.',
+    })).resolves.toBeUndefined();
+  });
 });

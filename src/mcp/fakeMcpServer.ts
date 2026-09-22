@@ -9,7 +9,15 @@ type FakeTool = {
 
 export interface FakeMcpServerOptions {
   executeFlowError?: { Code: string; Message: string };
+  listNavigationError?: { Code: string; Message: string };
   requestHandoffError?: { Code: string; Message: string };
+  navigationDestinations?: Array<{
+    DestinationRef: string;
+    Kind: 'MENU' | 'HOME';
+    Description: string;
+    MenuGroup: string | null;
+    Keywords: string | null;
+  }>;
 }
 
 export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServer {
@@ -120,12 +128,14 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
       return [{ type: 'text', text: JSON.stringify({ Success: false, Action: 'get_customer_details', Output: null, Error: options.executeFlowError }) }];
     }
     if (toolName === 'execute_flow_action') return [{ type: 'text', text: JSON.stringify({ Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } }) }];
-    if (toolName === 'list_navigation_destinations') return [{ type: 'text', text: JSON.stringify({ Destinations: [
+    if (toolName === 'list_navigation_destinations' && options.listNavigationError) return [{ type: 'text', text: options.listNavigationError.Message }];
+    if (toolName === 'list_navigation_destinations') return [{ type: 'text', text: JSON.stringify({ Destinations: options.navigationDestinations ?? [
       { DestinationRef: 'nav_sales', Kind: 'MENU', Description: 'Vendas', MenuGroup: 'Atendimento', Keywords: 'comprar produto orçamento' },
       { DestinationRef: 'nav_support', Kind: 'MENU', Description: 'Suporte', MenuGroup: 'Atendimento', Keywords: 'problema ajuda suporte' },
       { DestinationRef: 'nav_home', Kind: 'HOME', Description: 'Início', MenuGroup: null, Keywords: 'voltar início menu' },
     ] }) }];
-    if (toolName === 'request_handoff') return [{ type: 'text', text: JSON.stringify({ Status: 'REQUESTED', RequestUUID: 'fake-request-uuid' }) }];
+    if (toolName === 'request_handoff' && options.requestHandoffError) return [{ type: 'text', text: options.requestHandoffError.Message }];
+    if (toolName === 'request_handoff') return [{ type: 'text', text: JSON.stringify({ Accepted: true, Destination: 'Vendas', Status: 'REQUESTED' }) }];
     return [{ type: 'text', text: JSON.stringify({ Steps: [] }) }];
   };
   return {
@@ -139,6 +149,13 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
     async invalidateToolsCache() {},
     callTool,
     async callToolResult(toolName: string) {
+      if (toolName === 'list_navigation_destinations' && options.listNavigationError) {
+        return {
+          content: await callTool(toolName),
+          structuredContent: { Code: options.listNavigationError.Code },
+          isError: true,
+        };
+      }
       if (toolName === 'execute_flow_action' && options.executeFlowError) {
         return {
           content: await callTool(toolName),
@@ -150,7 +167,7 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
       if (toolName === 'request_handoff' && options.requestHandoffError) {
         return {
           content: await callTool(toolName),
-          structuredContent: { Status: 'FAILED', Error: options.requestHandoffError },
+          structuredContent: { Code: options.requestHandoffError.Code },
           isError: true,
         };
       }
@@ -178,14 +195,14 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
                     ? { Actions: [{ Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.' }] }
                     : toolName === 'describe_flow_action'
                     ? { Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.', Repeatable: true, Available: true, ExecutionCount: 0, UnavailableReason: null, RequiredInputs: [] }
-                      : toolName === 'list_navigation_destinations'
-                        ? { Destinations: [
+                        : toolName === 'list_navigation_destinations'
+                        ? { Destinations: options.navigationDestinations ?? [
                           { DestinationRef: 'nav_sales', Kind: 'MENU', Description: 'Vendas', MenuGroup: 'Atendimento', Keywords: 'comprar produto orçamento' },
                           { DestinationRef: 'nav_support', Kind: 'MENU', Description: 'Suporte', MenuGroup: 'Atendimento', Keywords: 'problema ajuda suporte' },
                           { DestinationRef: 'nav_home', Kind: 'HOME', Description: 'Início', MenuGroup: null, Keywords: 'voltar início menu' },
                         ] }
                         : toolName === 'request_handoff'
-                          ? { Status: 'REQUESTED', RequestUUID: 'fake-request-uuid' }
+                          ? { Accepted: true, Destination: 'Vendas', Status: 'REQUESTED' }
                           : { Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } },
         isError: false,
       };

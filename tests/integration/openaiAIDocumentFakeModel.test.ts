@@ -182,4 +182,23 @@ describe('AIDocument full Agents SDK path with fake model', () => {
     const navigationResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_navigation') as any;
     expect(JSON.parse(navigationResult.output.text)).toMatchObject({ Status: 'HANDOFF_REQUESTED', Destination: 'Vendas' });
   });
+
+  it('keeps a Navigation MCP failure inside use_navigation without claiming a handoff', async () => {
+    const model = new NavigationDeterministicModel();
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const server = createFakeMcpServer({ requestHandoffError: { Code: 'CORE_CONTRACT_ERROR', Message: 'Contrato de handoff inválido.' } });
+    const { runtime } = createTestRuntime(model as any, server, repository, sessionRepository);
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000004', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 459,
+      Messages: [{ IdMessage: 1004, Text: 'Quero comprar um produto.' }],
+    });
+
+    expect(result.statusCode).toBe(200);
+    const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
+    const navigationResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_navigation') as any;
+    expect(JSON.parse(navigationResult.output.text)).toMatchObject({ Status: 'FAILED', Error: { Code: 'CORE_CONTRACT_ERROR' } });
+    expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_ERROR')).toBe(false);
+  });
 });

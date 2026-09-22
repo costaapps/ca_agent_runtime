@@ -53,7 +53,7 @@ describe('AIDocument contracts', () => {
       ProcessContext: { Facts: { ProductInterest: 'Memória RAM' } },
       ActivationContext: { Source: 'HANDOFF' },
     });
-    for (const source of ['MODULE_COMPLETED', 'QUEUED', 'SEQUENTIAL'] as const) {
+    for (const source of ['MODULE_COMPLETED', 'OUTBOUND', 'QUEUED', 'SEQUENTIAL'] as const) {
       expect(AgentTurnInputSchema.safeParse({ ...coreActivationPayload, ActivationContext: { ...coreActivationPayload.ActivationContext, Source: source } }).success).toBe(true);
     }
     expect(AIDocumentRootOutputSchema.safeParse({ Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }).success).toBe(true);

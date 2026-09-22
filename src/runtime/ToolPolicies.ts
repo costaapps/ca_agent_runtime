@@ -64,6 +64,18 @@ export const ToolPolicies: Readonly<Record<string, ToolPolicy>> = {
     requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
     meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
   },
+  list_navigation_destinations: {
+    enabled: true,
+    allowedAgents: ['NavigationAgent'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+  },
+  request_handoff: {
+    enabled: true,
+    allowedAgents: ['NavigationAgent'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+  },
 };
 
 export function getToolPolicy(toolName: string): ToolPolicy | undefined {

@@ -9,6 +9,7 @@ type FakeTool = {
 
 export interface FakeMcpServerOptions {
   executeFlowError?: { Code: string; Message: string };
+  requestHandoffError?: { Code: string; Message: string };
 }
 
 export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServer {
@@ -87,6 +88,25 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
         additionalProperties: false,
       },
     },
+    {
+      name: 'list_navigation_destinations',
+      description: 'Lista os destinos autorizados para a navegação atual.',
+      inputSchema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+    },
+    {
+      name: 'request_handoff',
+      description: 'Solicita um Handoff durável para um destino autorizado.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          DestinationRef: { type: 'string' },
+          Reason: { type: 'string' },
+          Summary: { type: 'string' },
+        },
+        required: ['DestinationRef', 'Reason', 'Summary'],
+        additionalProperties: false,
+      },
+    },
   ];
   const callTool = async (toolName: string) => {
     if (toolName === 'get_chat_history') return [{ type: 'text', text: JSON.stringify({ Messages: [] }) }];
@@ -100,6 +120,12 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
       return [{ type: 'text', text: JSON.stringify({ Success: false, Action: 'get_customer_details', Output: null, Error: options.executeFlowError }) }];
     }
     if (toolName === 'execute_flow_action') return [{ type: 'text', text: JSON.stringify({ Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } }) }];
+    if (toolName === 'list_navigation_destinations') return [{ type: 'text', text: JSON.stringify({ Destinations: [
+      { DestinationRef: 'nav_sales', Kind: 'MENU', Description: 'Vendas', MenuGroup: 'Atendimento', Keywords: 'comprar produto orçamento' },
+      { DestinationRef: 'nav_support', Kind: 'MENU', Description: 'Suporte', MenuGroup: 'Atendimento', Keywords: 'problema ajuda suporte' },
+      { DestinationRef: 'nav_home', Kind: 'HOME', Description: 'Início', MenuGroup: null, Keywords: 'voltar início menu' },
+    ] }) }];
+    if (toolName === 'request_handoff') return [{ type: 'text', text: JSON.stringify({ Status: 'REQUESTED', RequestUUID: 'fake-request-uuid' }) }];
     return [{ type: 'text', text: JSON.stringify({ Steps: [] }) }];
   };
   return {
@@ -118,6 +144,13 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
           content: await callTool(toolName),
           structuredContent: { Success: false, Action: 'get_customer_details', Output: null, Error: options.executeFlowError },
           _meta: { ca: { FlowInvocation: { InvocationUUID: 'fake-invocation-uuid' } } },
+          isError: true,
+        };
+      }
+      if (toolName === 'request_handoff' && options.requestHandoffError) {
+        return {
+          content: await callTool(toolName),
+          structuredContent: { Status: 'FAILED', Error: options.requestHandoffError },
           isError: true,
         };
       }
@@ -144,8 +177,16 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
                   : toolName === 'list_flow_actions'
                     ? { Actions: [{ Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.' }] }
                     : toolName === 'describe_flow_action'
-                      ? { Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.', Repeatable: true, Available: true, ExecutionCount: 0, UnavailableReason: null, RequiredInputs: [] }
-                      : { Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } },
+                    ? { Action: 'get_customer_details', Description: 'Consulta os dados master do cliente.', Repeatable: true, Available: true, ExecutionCount: 0, UnavailableReason: null, RequiredInputs: [] }
+                      : toolName === 'list_navigation_destinations'
+                        ? { Destinations: [
+                          { DestinationRef: 'nav_sales', Kind: 'MENU', Description: 'Vendas', MenuGroup: 'Atendimento', Keywords: 'comprar produto orçamento' },
+                          { DestinationRef: 'nav_support', Kind: 'MENU', Description: 'Suporte', MenuGroup: 'Atendimento', Keywords: 'problema ajuda suporte' },
+                          { DestinationRef: 'nav_home', Kind: 'HOME', Description: 'Início', MenuGroup: null, Keywords: 'voltar início menu' },
+                        ] }
+                        : toolName === 'request_handoff'
+                          ? { Status: 'REQUESTED', RequestUUID: 'fake-request-uuid' }
+                          : { Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } },
         isError: false,
       };
     },

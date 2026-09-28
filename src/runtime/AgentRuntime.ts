@@ -3,7 +3,7 @@ import { system, type AgentInputItem, type MCPServer } from '@openai/agents';
 import type { AgentRunInput } from '../api/contracts/agentRunInput.js';
 import type { AgentRunOutput, AgentRunSuccess } from '../api/contracts/agentRunOutput.js';
 import type { AgentSessionCloseInput, AgentSessionCloseOutput } from '../api/contracts/agentSessionClose.js';
-import { AgentTurnInputSchema, type AgentTurnInput } from '../api/contracts/agentTurnInput.js';
+import { AgentConfigurationSchema, type AgentConfiguration, AgentTurnInputSchema, type AgentTurnInput } from '../api/contracts/agentTurnInput.js';
 import { AIDocumentRootOutputSchema, type AgentTurnFailure, type AgentTurnOutput, type AgentTurnSuccess } from '../api/contracts/agentTurnOutput.js';
 import { AgentNotFoundError, RuntimeError, asRuntimeError } from '../errors/RuntimeError.js';
 import { ErrorCodes } from '../errors/errorCodes.js';
@@ -19,7 +19,7 @@ import { createOpenAITraceId, type TraceSettings } from '../openai/tracing.js';
 import type { OpenAIRunner } from '../openai/runner.js';
 import { McpObservabilityRegistry } from '../mcp/observability.js';
 import { DatabaseAgentSession } from '../session/DatabaseAgentSession.js';
-import { canonicalTurnInput, hashTurnPayload } from './TurnIdentity.js';
+import { canonicalTurnInput, hashLegacyTurnPayload, hashTurnPayload } from './TurnIdentity.js';
 import { SessionMutex } from './SessionMutex.js';
 
 export interface AgentRuntimeOptions {
@@ -102,6 +102,23 @@ function turnFailure(
 function parseStoredOutput(outputJSON: string | null): ReturnType<typeof AIDocumentRootOutputSchema.parse> | undefined {
   if (!outputJSON) return undefined;
   try { return AIDocumentRootOutputSchema.parse(JSON.parse(outputJSON)); } catch { return undefined; }
+}
+
+const DEFAULT_RECEPTION_AGENT_CONFIGURATION: AgentConfiguration = {
+  Code: 'reception-agent',
+  Revision: 0,
+  Instructions: '',
+};
+
+function sessionAgentConfiguration(session: AgentSessionRecord): AgentConfiguration | null {
+  if (session.AgentConfigurationJSON) {
+    try {
+      return AgentConfigurationSchema.parse(JSON.parse(session.AgentConfigurationJSON));
+    } catch (error) {
+      throw new RuntimeError(ErrorCodes.PersistenceError, 'Snapshot AgentConfiguration persistido na Session é inválido.', error);
+    }
+  }
+  return session.RootAgent === 'reception-agent' ? DEFAULT_RECEPTION_AGENT_CONFIGURATION : null;
 }
 
 export class AgentRuntime {
@@ -230,10 +247,18 @@ export class AgentRuntime {
       session = await sessionRepository.findByProcessLine(input.IdCompany, input.IdProcessLine);
       if (!session) {
         if (!this.options.registry.hasHostedAgent(input.Agent)) return turnFailure(input, ErrorCodes.AgentNotFound, `Agent '${input.Agent}' não encontrado.`);
+        const configuration = input.AgentConfiguration ?? (input.Agent === 'reception-agent' ? DEFAULT_RECEPTION_AGENT_CONFIGURATION : null);
         const now = new Date();
-        session = await sessionRepository.createSession({ SessionUUID: randomUUID(), IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, RootAgent: input.Agent, Status: 'OPEN', StartedAt: now, LastActivityAt: now, ClosedAt: null });
+        session = await sessionRepository.createSession({
+          SessionUUID: randomUUID(), IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine,
+          RootAgent: input.Agent,
+          AgentConfigurationRevision: configuration?.Revision ?? null,
+          AgentConfigurationJSON: configuration ? json(configuration) : null,
+          Status: 'OPEN', StartedAt: now, LastActivityAt: now, ClosedAt: null,
+        });
       }
       if (session.Status === 'CLOSED') return turnFailure(input, ErrorCodes.AgentSessionClosed, 'A Session do AIDocument está fechada.', session.SessionUUID);
+      const frozenConfiguration = sessionAgentConfiguration(session);
 
       const executionUUID = randomUUID();
       const openAITraceId = createOpenAITraceId();
@@ -268,7 +293,19 @@ export class AgentRuntime {
             `Agent solicitado '${input.Agent}' ignorado; Session permanece em '${session.RootAgent}'.`,
           );
         }
-        const graph = this.options.registry.buildHostedAgent(session.RootAgent, { mcpServer: this.options.mcpServer, model: this.options.model, runtimeContext: context, logger });
+        if (input.AgentConfiguration && frozenConfiguration && json(input.AgentConfiguration) !== json(frozenConfiguration)) {
+          await logger.runtimeWarning(
+            'AGENT_CONFIGURATION_FROZEN',
+            `AgentConfiguration recebida (Revision ${input.AgentConfiguration.Revision}) ignorada; Session mantém Revision ${frozenConfiguration.Revision}.`,
+          );
+        }
+        const graph = this.options.registry.buildHostedAgent(session.RootAgent, {
+          mcpServer: this.options.mcpServer,
+          model: this.options.model,
+          runtimeContext: context,
+          logger,
+          agentConfiguration: frozenConfiguration,
+        });
         for (const agent of graph.agents) {
           agent.on('agent_start', (_runContext, startedAgent) => { void logger.agentStart(startedAgent.name).catch(() => undefined); });
         }
@@ -319,7 +356,8 @@ export class AgentRuntime {
   }
 
   private resolveExistingTurn(input: AgentTurnInput, existing: StoredTurnExecution, payloadHash: string): AgentTurnRuntimeResult {
-    if (existing.TurnPayloadHash !== payloadHash) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', undefined, existing.ExecutionUUID);
+    const isLegacyReplay = input.AgentConfiguration == null && existing.TurnPayloadHash === hashLegacyTurnPayload(input);
+    if (existing.TurnPayloadHash !== payloadHash && !isLegacyReplay) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', undefined, existing.ExecutionUUID);
     if (!existing.FinishedAt) return turnFailure(input, ErrorCodes.TurnInProgress, 'O Turn ainda está em execução.', existing.SessionUUID ?? undefined, existing.ExecutionUUID);
     if (!existing.SessionUUID || !existing.RootAgent) return turnFailure(input, ErrorCodes.PersistenceError, 'A execução persistida não possui Session associada.', undefined, existing.ExecutionUUID);
     if (existing.Success === 'Y') {

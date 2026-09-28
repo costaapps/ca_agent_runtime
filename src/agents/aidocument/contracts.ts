@@ -1,6 +1,7 @@
 import type { Agent, MCPServer } from '@openai/agents';
 import type { RuntimeContextData } from '../../runtime/RuntimeContext.js';
 import type { ExecutionLogger } from '../../tracing/ExecutionLogger.js';
+import type { AgentConfiguration } from '../../api/contracts/agentTurnInput.js';
 
 export interface AIDocumentAgentGraph {
   root: Agent<RuntimeContextData, any>;
@@ -12,6 +13,7 @@ export interface AIDocumentAgentBuildContext {
   model: string;
   runtimeContext: RuntimeContextData;
   logger: ExecutionLogger;
+  agentConfiguration?: AgentConfiguration | null;
 }
 
 export interface ReceptionAgentBuildContext extends AIDocumentAgentBuildContext {

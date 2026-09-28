@@ -20,7 +20,24 @@ export function canonicalTurnPayload(input: AgentTurnInput): string {
     ProcessContextRevision: input.ProcessContextRevision ?? 0,
     ProcessContext: input.ProcessContext ?? { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
     ActivationContext: input.ActivationContext ?? null,
+    AgentConfiguration: input.AgentConfiguration ?? null,
   }));
+}
+
+/** Hash format used before AgentConfiguration became part of turn identity. */
+export function hashLegacyTurnPayload(input: AgentTurnInput): string {
+  const legacyPayload = JSON.stringify(stableValue({
+    Agent: input.Agent,
+    IdCompany: input.IdCompany,
+    IdChat: input.IdChat,
+    IdProcessLine: input.IdProcessLine,
+    TurnSource: input.TurnSource ?? 'MESSAGE',
+    Messages: input.Messages.map((message) => ({ IdMessage: message.IdMessage, Text: message.Text })),
+    ProcessContextRevision: input.ProcessContextRevision ?? 0,
+    ProcessContext: input.ProcessContext ?? { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+    ActivationContext: input.ActivationContext ?? null,
+  }));
+  return createHash('sha256').update(legacyPayload).digest('hex');
 }
 
 export function canonicalTurnInput(input: AgentTurnInput): string {

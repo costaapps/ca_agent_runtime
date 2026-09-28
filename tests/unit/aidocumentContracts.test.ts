@@ -60,6 +60,16 @@ describe('AIDocument contracts', () => {
     expect(AIDocumentRootOutputSchema.safeParse({ Response: 'Ok', Control: { CompletionRequested: 'false' } }).success).toBe(false);
   });
 
+  it('accepts the company configuration default and rejects a configuration code that changes the requested Agent', () => {
+    const base = {
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000099', Agent: 'reception-agent', IdCompany: 1001, IdChat: 2001, IdProcessLine: 3001,
+      Messages: [{ IdMessage: 99, Text: 'Olá' }],
+    };
+    expect(AgentTurnInputSchema.parse({ ...base, AgentConfiguration: { Code: 'reception-agent', Revision: 0, Instructions: '' } }).AgentConfiguration)
+      .toMatchObject({ Code: 'reception-agent', Revision: 0, Instructions: '' });
+    expect(AgentTurnInputSchema.safeParse({ ...base, AgentConfiguration: { Code: 'sales-agent', Revision: 1, Instructions: 'x' } }).success).toBe(false);
+  });
+
   it('restricts ContextUpdates to Facts and CurrentIntent', () => {
     const valid = AIDocumentRootOutputSchema.safeParse({
       Response: 'Entendi.',

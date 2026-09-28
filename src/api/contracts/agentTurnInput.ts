@@ -24,6 +24,13 @@ export const ActivationContextSchema = z.object({
   Context: z.record(z.string(), z.unknown()).default({}),
 }).passthrough();
 
+export const AgentConfigurationSchema = z.object({
+  Code: z.string().min(1),
+  Revision: z.coerce.number().int().nonnegative(),
+  Instructions: z.string(),
+  Name: z.string().nullable().optional(),
+});
+
 export const AgentTurnInputSchema = z.object({
   TurnUUID: z.string().uuid(),
   Agent: z.string().min(1),
@@ -35,7 +42,11 @@ export const AgentTurnInputSchema = z.object({
   ProcessContextRevision: z.coerce.number().int().nonnegative().default(0),
   ProcessContext: ProcessContextSchema.default(emptyProcessContext),
   ActivationContext: ActivationContextSchema.nullable().default(null),
+  AgentConfiguration: AgentConfigurationSchema.nullable().default(null),
 }).passthrough().superRefine((value, context) => {
+  if (value.AgentConfiguration && value.AgentConfiguration.Code !== value.Agent) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['AgentConfiguration', 'Code'], message: 'AgentConfiguration.Code deve corresponder ao Agent solicitado.' });
+  }
   if (value.TurnSource === 'MESSAGE') {
     if (value.Messages.length === 0) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['Messages'], message: 'MESSAGE exige ao menos uma mensagem.' });
@@ -58,6 +69,7 @@ export type AgentTurnMessage = z.infer<typeof AgentTurnMessageSchema>;
 export type TurnSource = z.infer<typeof TurnSourceSchema>;
 export type ProcessContext = z.infer<typeof ProcessContextSchema>;
 export type ActivationContext = z.infer<typeof ActivationContextSchema>;
+export type AgentConfiguration = z.output<typeof AgentConfigurationSchema>;
 export interface AgentTurnInput {
   TurnUUID: string;
   Agent: string;
@@ -69,6 +81,7 @@ export interface AgentTurnInput {
   ProcessContextRevision?: number;
   ProcessContext?: ProcessContext;
   ActivationContext?: ActivationContext | null;
+  AgentConfiguration?: AgentConfiguration | null;
   [key: string]: unknown;
 }
 export type ParsedAgentTurnInput = z.output<typeof AgentTurnInputSchema>;

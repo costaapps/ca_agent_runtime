@@ -47,12 +47,9 @@ describe('Agent Platform specialist tool boundaries', () => {
     const runContext = new RunContext(context);
 
     expect((await support.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_flow_capabilities', 'use_navigation']);
-    expect((await reception.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_flow_capabilities', 'use_navigation', 'file_search']);
-    expect(reception.agents.map((agent) => agent.name)).toEqual(['ReceptionAgent', 'FlowAgent', 'NavigationAgent']);
+    expect((await reception.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_navigation', 'file_search']);
+    expect(reception.agents.map((agent) => agent.name)).toEqual(['ReceptionAgent', 'NavigationAgent']);
     expect((await reception.agents[1]!.getAllTools(runContext)).map((tool) => tool.name)).toEqual(expect.arrayContaining([
-      'list_flow_actions', 'describe_flow_action', 'execute_flow_action',
-    ]));
-    expect((await reception.agents[2]!.getAllTools(runContext)).map((tool) => tool.name)).toEqual(expect.arrayContaining([
       'list_navigation_destinations', 'request_handoff',
     ]));
   });

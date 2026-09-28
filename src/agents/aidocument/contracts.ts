@@ -17,3 +17,6 @@ export interface AIDocumentAgentBuildContext {
 export interface ReceptionAgentBuildContext extends AIDocumentAgentBuildContext {
   vectorStoreIds: readonly string[];
 }
+
+export type HostedAgentGraph = AIDocumentAgentGraph;
+export type HostedAgentBuildContext = AIDocumentAgentBuildContext;

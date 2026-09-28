@@ -21,7 +21,7 @@ export interface AgentBuildContext {
   logger: ExecutionLogger;
 }
 
-export type { AIDocumentAgentBuildContext, AIDocumentAgentGraph } from './aidocument/contracts.js';
+export type { AIDocumentAgentBuildContext, AIDocumentAgentGraph, HostedAgentBuildContext, HostedAgentGraph } from './aidocument/contracts.js';
 
 export type AgentFactory = (context: AgentBuildContext) => AgentGraph;
 
@@ -55,10 +55,18 @@ export class AgentRegistry {
   }
 
   hasAIDocument(agentKey: string): boolean {
-    return this.aidocumentFactories.has(agentKey);
+    return this.hasHostedAgent(agentKey);
   }
 
   buildAIDocument(agentKey: string, context: AIDocumentAgentBuildContext): AIDocumentAgentGraph {
+    return this.buildHostedAgent(agentKey, context);
+  }
+
+  hasHostedAgent(agentKey: string): boolean {
+    return this.aidocumentFactories.has(agentKey);
+  }
+
+  buildHostedAgent(agentKey: string, context: AIDocumentAgentBuildContext): AIDocumentAgentGraph {
     const factory = this.aidocumentFactories.get(agentKey);
     if (!factory) throw new AgentNotFoundError(agentKey);
     return factory(context);

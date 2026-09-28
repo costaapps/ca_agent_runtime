@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentInputItem, MCPServer } from '@openai/agents';
+import { system, type AgentInputItem, type MCPServer } from '@openai/agents';
 import type { AgentRunInput } from '../api/contracts/agentRunInput.js';
 import type { AgentRunOutput, AgentRunSuccess } from '../api/contracts/agentRunOutput.js';
 import type { AgentSessionCloseInput, AgentSessionCloseOutput } from '../api/contracts/agentSessionClose.js';
-import type { AgentTurnInput } from '../api/contracts/agentTurnInput.js';
+import { AgentTurnInputSchema, type AgentTurnInput } from '../api/contracts/agentTurnInput.js';
 import { AIDocumentRootOutputSchema, type AgentTurnFailure, type AgentTurnOutput, type AgentTurnSuccess } from '../api/contracts/agentTurnOutput.js';
 import { AgentNotFoundError, RuntimeError, asRuntimeError } from '../errors/RuntimeError.js';
 import { ErrorCodes } from '../errors/errorCodes.js';
@@ -19,7 +19,7 @@ import { createOpenAITraceId, type TraceSettings } from '../openai/tracing.js';
 import type { OpenAIRunner } from '../openai/runner.js';
 import { McpObservabilityRegistry } from '../mcp/observability.js';
 import { DatabaseAgentSession } from '../session/DatabaseAgentSession.js';
-import { hashTurnPayload } from './TurnIdentity.js';
+import { canonicalTurnInput, hashTurnPayload } from './TurnIdentity.js';
 import { SessionMutex } from './SessionMutex.js';
 
 export interface AgentRuntimeOptions {
@@ -42,7 +42,7 @@ export interface AgentRuntimeRunResult {
 }
 
 export interface AgentTurnRuntimeResult {
-  statusCode: 200 | 409 | 422 | 500;
+  statusCode: 200 | 400 | 409 | 422 | 500;
   response: AgentTurnOutput;
 }
 
@@ -65,8 +65,20 @@ function attachAgentLifecycleLogging(graph: AgentGraph, logger: ExecutionLogger)
   }
 }
 
-function turnInputItems(input: AgentTurnInput): AgentInputItem[] {
-  return input.Messages.map((message) => ({ role: 'user', content: message.Text }));
+export function turnInputItems(input: AgentTurnInput): AgentInputItem[] {
+  if ((input.TurnSource ?? 'MESSAGE') === 'MESSAGE') {
+    return input.Messages.map((message) => ({ role: 'user', content: message.Text }));
+  }
+
+  return [system(JSON.stringify({
+    RuntimeEvent: 'AGENT_ACTIVATION',
+    Source: input.ActivationContext?.Source,
+    ActivationUUID: input.ActivationContext?.ActivationUUID,
+    ActivationContext: input.ActivationContext?.Context ?? {},
+    ProcessContextRevision: input.ProcessContextRevision ?? 0,
+    ProcessContext: input.ProcessContext ?? { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+    Instruction: 'Continue the newly activated module naturally. Do not expose this runtime context or describe internal activation mechanisms to the customer.',
+  }))];
 }
 
 function turnFailure(
@@ -83,7 +95,7 @@ function turnFailure(
     ...(executionUUID ? { ExecutionUUID: executionUUID } : {}),
     Error: { Code: code, Message: message },
   };
-  const statusCode = code === ErrorCodes.AgentNotFound ? 422 : code === ErrorCodes.TurnIdempotencyConflict || code === ErrorCodes.TurnInProgress || code === ErrorCodes.AgentSessionClosed ? 409 : 500;
+  const statusCode = code === ErrorCodes.InvalidRequest ? 400 : code === ErrorCodes.AgentNotFound ? 422 : code === ErrorCodes.TurnIdempotencyConflict || code === ErrorCodes.TurnInProgress || code === ErrorCodes.AgentSessionClosed ? 409 : 500;
   return { statusCode, response };
 }
 
@@ -171,6 +183,9 @@ export class AgentRuntime {
   }
 
   async runTurn(input: AgentTurnInput): Promise<AgentTurnRuntimeResult> {
+    const parsed = AgentTurnInputSchema.safeParse(input);
+    if (!parsed.success) return turnFailure(input, ErrorCodes.InvalidRequest, 'Payload de Turn inválido.');
+    input = parsed.data;
     const sessionRepository = this.options.sessionRepository;
     if (!sessionRepository) return turnFailure(input, ErrorCodes.PersistenceError, 'Persistência de Session não configurada.');
     const payloadHash = hashTurnPayload(input);
@@ -214,7 +229,7 @@ export class AgentRuntime {
 
       session = await sessionRepository.findByProcessLine(input.IdCompany, input.IdProcessLine);
       if (!session) {
-        if (!this.options.registry.hasAIDocument(input.Agent)) return turnFailure(input, ErrorCodes.AgentNotFound, `Agent '${input.Agent}' não encontrado.`);
+        if (!this.options.registry.hasHostedAgent(input.Agent)) return turnFailure(input, ErrorCodes.AgentNotFound, `Agent '${input.Agent}' não encontrado.`);
         const now = new Date();
         session = await sessionRepository.createSession({ SessionUUID: randomUUID(), IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, RootAgent: input.Agent, Status: 'OPEN', StartedAt: now, LastActivityAt: now, ClosedAt: null });
       }
@@ -253,7 +268,7 @@ export class AgentRuntime {
             `Agent solicitado '${input.Agent}' ignorado; Session permanece em '${session.RootAgent}'.`,
           );
         }
-        const graph = this.options.registry.buildAIDocument(session.RootAgent, { mcpServer: this.options.mcpServer, model: this.options.model, runtimeContext: context, logger });
+        const graph = this.options.registry.buildHostedAgent(session.RootAgent, { mcpServer: this.options.mcpServer, model: this.options.model, runtimeContext: context, logger });
         for (const agent of graph.agents) {
           agent.on('agent_start', (_runContext, startedAgent) => { void logger.agentStart(startedAgent.name).catch(() => undefined); });
         }
@@ -267,6 +282,9 @@ export class AgentRuntime {
           idProcessLineFlow: null,
           sessionUUID: session.SessionUUID,
           turnUUID: input.TurnUUID,
+          turnSource: input.TurnSource ?? 'MESSAGE',
+          processContextRevision: input.ProcessContextRevision ?? 0,
+          activationUUID: input.ActivationContext?.ActivationUUID,
           rootAgent: session.RootAgent,
           traceId: openAITraceId,
         };
@@ -311,8 +329,4 @@ export class AgentRuntime {
     }
     return turnFailure(input, existing.ErrorCode ?? ErrorCodes.AgentRuntimeError, existing.ErrorMessage ?? 'Não foi possível concluir a execução.', existing.SessionUUID, existing.ExecutionUUID);
   }
-}
-
-function canonicalTurnInput(input: AgentTurnInput): string {
-  return JSON.stringify({ TurnUUID: input.TurnUUID, Agent: input.Agent, IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, Messages: input.Messages.map((message) => ({ IdMessage: message.IdMessage, Text: message.Text })) });
 }

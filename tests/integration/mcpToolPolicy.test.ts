@@ -8,7 +8,7 @@ import { createRuntimeContext } from '../../src/runtime/RuntimeContext.js';
 import { createToolFilter } from '../../src/runtime/ToolPolicies.js';
 
 describe('SDK MCP tool policy integration', () => {
-  it('exposes only Flow tools to FlowAgent and no MCP tools to a Root Agent', async () => {
+  it('exposes only Flow tools to FlowAgent and only Navigation tools to NavigationAgent', async () => {
     const context = createRuntimeContext({
       Agent: 'chat-orchestrator-poc', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789,
       Message: 'Consultar o preço do carro', ExpectedOutput: { Name: 'Intent', Description: 'Identifique.' },
@@ -27,6 +27,10 @@ describe('SDK MCP tool policy integration', () => {
     expect(flowTools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining([
       'get_chat_history', 'get_process_line_flow_state', 'get_products', 'get_pricelists', 'resolve_product', 'get_products_pricelists',
     ]));
+
+    const navigationTools = await getAllMcpTools({ mcpServers: [server], runContext, agent: { name: 'NavigationAgent' } as any });
+    expect(navigationTools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['list_navigation_destinations', 'request_handoff']));
+    expect(navigationTools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(['list_flow_actions', 'describe_flow_action', 'execute_flow_action']));
 
     const rootTools = await getAllMcpTools({ mcpServers: [server], runContext, agent: { name: 'SalesAgent' } as any });
     expect(rootTools).toHaveLength(0);

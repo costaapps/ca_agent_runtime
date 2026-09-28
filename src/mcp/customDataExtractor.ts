@@ -4,6 +4,7 @@ import { ErrorCodes } from '../errors/errorCodes.js';
 import type { RuntimeContextData } from '../runtime/RuntimeContext.js';
 import { mergeResolved } from '../runtime/ResolvedContext.js';
 import { McpObservabilityRegistry, ToolCallTracker } from './observability.js';
+import { recordNavigationToolObservation } from '../agents/aidocument/specialists/navigationAgent.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -23,10 +24,18 @@ export function createCustomDataExtractor(
   observability: McpObservabilityRegistry,
   tracker = new ToolCallTracker(),
 ): MCPToolCustomDataExtractor<RuntimeContextData> {
-  return async ({ runContext, serverName, toolName, resultMeta, structuredContent, isError, toolOutput }) => {
+  return async ({ runContext, serverName, toolName, resultMeta, structuredContent, isError, toolOutput, arguments: toolArguments }) => {
     const context = runContext.context as RuntimeContextData;
     const durationMs = tracker.end(context, toolName);
     const output = { structuredContent, resultMeta, isError: isError ?? false, toolOutput };
+    recordNavigationToolObservation(
+      context,
+      toolName,
+      toolArguments,
+      structuredContent,
+      isError ?? false,
+      toolOutput,
+    );
     const resolved = resultMeta?.ca;
     console.info(JSON.stringify({
       Event: 'MCP_TOOL_RESULT_AFTER',
@@ -47,7 +56,8 @@ export function createCustomDataExtractor(
     if (patch) mergeResolved(context, patch);
 
     const flowTool = toolName === 'list_flow_actions' || toolName === 'describe_flow_action' || toolName === 'execute_flow_action';
-    if (isError && !flowTool) {
+    const navigationTool = toolName === 'list_navigation_destinations' || toolName === 'request_handoff';
+    if (isError && !flowTool && !navigationTool) {
       throw new RuntimeError(ErrorCodes.McpToolError, `MCP tool '${toolName}' retornou erro.`);
     }
 

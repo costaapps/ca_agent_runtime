@@ -14,6 +14,9 @@ export interface TraceSettings {
   idProcessLineFlow: number | null;
   sessionUUID?: string;
   turnUUID?: string;
+  turnSource?: string;
+  processContextRevision?: number;
+  activationUUID?: string;
   rootAgent?: string;
   traceId: string;
 }

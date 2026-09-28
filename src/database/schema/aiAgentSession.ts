@@ -9,6 +9,7 @@ export const aiAgentSession = mysqlTable('AIAgentSession', {
   RootAgent: varchar('RootAgent', { length: 250 }).notNull(),
   AgentConfigurationRevision: int('AgentConfigurationRevision'),
   AgentConfigurationJSON: longtext('AgentConfigurationJSON'),
+  KnowledgeConfigurationJSON: longtext('KnowledgeConfigurationJSON'),
   Status: varchar('Status', { length: 20 }).notNull(),
   StartedAt: datetime('StartedAt', { mode: 'date', fsp: 3 }).notNull(),
   LastActivityAt: datetime('LastActivityAt', { mode: 'date', fsp: 3 }).notNull(),

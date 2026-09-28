@@ -8,6 +8,7 @@ export const ExecutionEventTypes = {
   RuntimeEnd: 'RUNTIME_END',
   RuntimeWarning: 'RUNTIME_WARNING',
   RuntimeError: 'RUNTIME_ERROR',
+  KnowledgeSearch: 'KNOWLEDGE_SEARCH',
 } as const;
 
 export type ExecutionEventType = typeof ExecutionEventTypes[keyof typeof ExecutionEventTypes];

@@ -23,6 +23,7 @@
     "drizzle-orm": "^0.44.5",
     "express": "^5.1.0",
     "mysql2": "^3.14.3",
+    "openai": "^7.23.0",
     "zod": "^4.6.1"
   },
   "devDependencies": {

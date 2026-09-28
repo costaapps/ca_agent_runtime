@@ -28,5 +28,9 @@ export function createSupportAgent(context: AIDocumentAgentBuildContext): AIDocu
     model: context.model,
     mcpServer: context.mcpServer,
     runtimeContext: context.runtimeContext,
+    companyInstructions: context.agentConfiguration?.Instructions ?? '',
+    knowledgeConfiguration: context.knowledgeConfiguration,
+    knowledgeSearchService: context.knowledgeSearchService,
+    logger: context.logger,
   });
 }

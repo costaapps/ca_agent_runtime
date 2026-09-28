@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Agent } from '@openai/agents';
+import { Agent, RunContext } from '@openai/agents';
 import { AgentRegistry } from '../../src/agents/AgentRegistry.js';
 import { AgentRuntime } from '../../src/runtime/AgentRuntime.js';
 import { createFakeMcpServer } from '../../src/mcp/fakeMcpServer.js';
@@ -7,7 +7,9 @@ import { McpObservabilityRegistry } from '../../src/mcp/observability.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { MemorySessionRepository } from '../helpers/memorySessionRepository.js';
 import type { RuntimeContextData } from '../../src/runtime/RuntimeContext.js';
-import { hashLegacyTurnPayload } from '../../src/runtime/TurnIdentity.js';
+import { hashLegacyTurnPayload, hashPreKnowledgeTurnPayload } from '../../src/runtime/TurnIdentity.js';
+import { KnowledgeConfigurationSchema } from '../../src/api/contracts/knowledgeConfiguration.js';
+import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
 
 function makeTurn(overrides: Partial<{ TurnUUID: string; Agent: string; Text: string; IdMessage: number }> = {}) {
   return {
@@ -65,7 +67,7 @@ describe('AIDocument Agent Runtime', () => {
     const runtime = new AgentRuntime({
       repository,
       sessionRepository,
-      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      registry: new AgentRegistry(),
       runner: {
         async run(agent: Agent<RuntimeContextData, any>) {
           prompts.push(agent.instructions as string);
@@ -101,7 +103,7 @@ describe('AIDocument Agent Runtime', () => {
     let prompt = '';
     const runtime = new AgentRuntime({
       repository, sessionRepository,
-      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      registry: new AgentRegistry(),
       runner: { async run(agent: Agent<RuntimeContextData, any>) { prompt = agent.instructions as string; return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } }; } },
       mcpServer: createFakeMcpServer(), observability: new McpObservabilityRegistry(), model: 'test-model', tracingEnabled: false, traceIncludeSensitiveData: false,
     });
@@ -169,7 +171,7 @@ describe('AIDocument Agent Runtime', () => {
     const runtime = new AgentRuntime({
       repository,
       sessionRepository,
-      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      registry: new AgentRegistry(),
       runner: {
         async run(agent: Agent<RuntimeContextData, any>) {
           return { finalOutput: { Response: agent.name, Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
@@ -196,7 +198,7 @@ describe('AIDocument Agent Runtime', () => {
     const runtime = new AgentRuntime({
       repository,
       sessionRepository,
-      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      registry: new AgentRegistry(),
       runner: {
         async run(agent: Agent<RuntimeContextData, any>) {
           return { finalOutput: { Response: agent.name, Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
@@ -366,7 +368,7 @@ describe('AIDocument Agent Runtime', () => {
     const runtime = new AgentRuntime({
       repository,
       sessionRepository,
-      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      registry: new AgentRegistry(),
       runner: {
         async run(_agent: Agent<RuntimeContextData, any>, input: unknown) {
           receivedInput = input;
@@ -407,7 +409,7 @@ describe('AIDocument Agent Runtime', () => {
     const runtime = new AgentRuntime({
       repository,
       sessionRepository,
-      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      registry: new AgentRegistry(),
       runner: {
         async run(_agent: Agent<RuntimeContextData, any>, input: unknown, context: RuntimeContextData) {
           receivedInput = input;
@@ -515,5 +517,72 @@ describe('AIDocument Agent Runtime', () => {
 
     expect(result.response).toMatchObject({ Success: true, Response: 'Atendimento concluído.', Control: { CompletionRequested: true, Reason: 'Cliente encerrou a conversa.' } });
     expect(sessionRepository.sessions[0]).toMatchObject({ Status: 'OPEN', ClosedAt: null });
+  });
+
+  it('freezes Knowledge on first ACTIVATION and keeps it across revisions until a new ProcessLine', async () => {
+    const repository = new MemoryRepository();
+    const sessions = new MemorySessionRepository(repository);
+    const observations: Array<{ instructions: string; tools: string[] }> = [];
+    const runtime = makeRuntime(repository, sessions, {
+      async run(agent: Agent<RuntimeContextData, any>, _input: unknown, context: RuntimeContextData) {
+        observations.push({ instructions: agent.instructions as string, tools: (await agent.getAllTools(new RunContext(context))).map((entry) => entry.name) });
+        return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+      },
+    });
+    const initial = KnowledgeConfigurationSchema.parse(configuredKnowledge);
+    const changed = KnowledgeConfigurationSchema.parse({ ...configuredKnowledge, References: [configuredKnowledge.References[0]] });
+    const first = { ...makeTurn({ Agent: 'reception-agent' }), TurnSource: 'ACTIVATION' as const, Messages: [], ActivationContext: { ActivationUUID: 'activation-knowledge', Source: 'MODULE_COMPLETED' as const, Context: {} }, KnowledgeConfiguration: initial };
+    expect((await runtime.runTurn(first)).statusCode).toBe(200);
+    expect((await runtime.runTurn({ ...makeTurn({ Agent: 'reception-agent', TurnUUID: '14ed24ea-0000-4000-8000-000000000602', IdMessage: 602 }), KnowledgeConfiguration: changed })).statusCode).toBe(200);
+    expect((await runtime.runTurn({ ...makeTurn({ Agent: 'reception-agent', TurnUUID: '14ed24ea-0000-4000-8000-000000000603', IdMessage: 603 }), IdProcessLine: 457, KnowledgeConfiguration: changed })).statusCode).toBe(200);
+    expect(JSON.parse(sessions.sessions[0]!.KnowledgeConfigurationJSON!)).toEqual(initial);
+    expect(JSON.parse(sessions.sessions[1]!.KnowledgeConfigurationJSON!)).toEqual(changed);
+    expect(observations[0]!.tools).toContain('search_knowledge');
+    expect(observations[1]!.instructions).toContain('document:commercial/refund-policy');
+    expect(observations[2]!.instructions).not.toContain('document:commercial/refund-policy');
+    expect(observations[0]!.instructions).not.toMatch(/vs_secret|file_secret|OPENAI_API_KEY|ca_document_code/);
+    const warning = repository.logs.find((entry) => entry.data.ErrorMessage?.startsWith('KNOWLEDGE_CONFIGURATION_FROZEN:'));
+    expect(warning).toBeDefined();
+    expect(warning?.data.ErrorMessage).not.toMatch(/vs_secret|file_secret|refund-policy/);
+  });
+
+  it('treats old Session rows as Knowledge-empty and does not replace them on the next Turn', async () => {
+    const repository = new MemoryRepository();
+    const sessions = new MemorySessionRepository(repository);
+    const toolsByTurn: string[][] = [];
+    const runtime = makeRuntime(repository, sessions, {
+      async run(agent: Agent<RuntimeContextData, any>, _input: unknown, context: RuntimeContextData) {
+        toolsByTurn.push((await agent.getAllTools(new RunContext(context))).map((entry) => entry.name));
+        return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+      },
+    });
+    await runtime.runTurn(makeTurn());
+    sessions.sessions[0]!.KnowledgeConfigurationJSON = null;
+    await runtime.runTurn({ ...makeTurn({ TurnUUID: '14ed24ea-0000-4000-8000-000000000604', IdMessage: 604 }), KnowledgeConfiguration: KnowledgeConfigurationSchema.parse(configuredKnowledge) });
+    expect(toolsByTurn[1]).not.toContain('search_knowledge');
+    expect(repository.logs.some((entry) => entry.data.ErrorMessage?.startsWith('KNOWLEDGE_CONFIGURATION_FROZEN:'))).toBe(true);
+  });
+
+  it('hashes Knowledge per Turn, rejects changed replay and accepts the pre-Knowledge hash only without new configuration', async () => {
+    const repository = new MemoryRepository();
+    const sessions = new MemorySessionRepository(repository);
+    let calls = 0;
+    const runtime = makeRuntime(repository, sessions, { async run(agent: Agent<RuntimeContextData, any>) {
+      calls += 1;
+      return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+    } });
+    const turn = { ...makeTurn(), KnowledgeConfiguration: KnowledgeConfigurationSchema.parse(configuredKnowledge) };
+    const result = await runtime.runTurn(turn);
+    expect(await runtime.runTurn(turn)).toEqual(result);
+    const different = { ...turn, KnowledgeConfiguration: { Version: 1 as const, Connections: [], References: [] } };
+    expect((await runtime.runTurn(different)).response).toMatchObject({ Error: { Code: 'TURN_IDEMPOTENCY_CONFLICT' } });
+    expect(calls).toBe(1);
+    const oldTurn = makeTurn({ TurnUUID: '14ed24ea-0000-4000-8000-000000000605', IdMessage: 605 });
+    const oldResult = await runtime.runTurn(oldTurn);
+    repository.executions[1]!.data.TurnPayloadHash = hashPreKnowledgeTurnPayload(oldTurn);
+    expect(await runtime.runTurn(oldTurn)).toEqual(oldResult);
+    expect(await runtime.runTurn({ ...oldTurn, KnowledgeConfiguration: { Version: 1, Connections: [], References: [] } })).toEqual(oldResult);
+    expect((await runtime.runTurn({ ...oldTurn, KnowledgeConfiguration: turn.KnowledgeConfiguration })).response).toMatchObject({ Error: { Code: 'TURN_IDEMPOTENCY_CONFLICT' } });
+    expect(calls).toBe(2);
   });
 });

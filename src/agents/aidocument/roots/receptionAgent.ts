@@ -1,7 +1,4 @@
-import { fileSearchTool } from '@openai/agents';
 import type { AIDocumentAgentGraph, ReceptionAgentBuildContext } from '../contracts.js';
-import { RuntimeError } from '../../../errors/RuntimeError.js';
-import { ErrorCodes } from '../../../errors/errorCodes.js';
 import { createAgentPlatformRootAgent } from '../shared/createAgentPlatformRootAgent.js';
 
 export const RECEPTION_AGENT_TECHNICAL_INSTRUCTIONS = [
@@ -31,10 +28,6 @@ export const RECEPTION_AGENT_GUARDRAILS = [
 ].join('\n');
 
 export function createReceptionAgent(context: ReceptionAgentBuildContext): AIDocumentAgentGraph {
-  if (context.vectorStoreIds.length === 0) {
-    throw new RuntimeError(ErrorCodes.ReceptionAgentKnowledgeNotConfigured, 'ReceptionAgent requer ao menos um Vector Store em RECEPTION_AGENT_VECTOR_STORE_IDS.');
-  }
-
   return createAgentPlatformRootAgent({
     name: 'ReceptionAgent',
     handoffDescription: 'Root Agent responsável pela conversa inicial do AIDocument.',
@@ -42,11 +35,12 @@ export function createReceptionAgent(context: ReceptionAgentBuildContext): AIDoc
     instructions: RECEPTION_AGENT_TECHNICAL_INSTRUCTIONS,
     guardrails: RECEPTION_AGENT_GUARDRAILS,
     companyInstructions: context.agentConfiguration?.Instructions ?? '',
-    knowledgeInstructions: null,
+    knowledgeConfiguration: context.knowledgeConfiguration,
+    knowledgeSearchService: context.knowledgeSearchService,
+    logger: context.logger,
     mcpServer: context.mcpServer,
     runtimeContext: context.runtimeContext,
     includeFlow: false,
     includeNavigation: true,
-    additionalTools: [fileSearchTool([...context.vectorStoreIds], { maxNumResults: 5, includeSearchResults: true })],
   });
 }

@@ -17,6 +17,7 @@ export interface FakeMcpServerOptions {
     Description: string;
     MenuGroup: string | null;
     Keywords: string | null;
+    AIReference?: string | null;
   }>;
 }
 

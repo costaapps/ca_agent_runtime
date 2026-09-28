@@ -65,13 +65,15 @@ class DeterministicAIDocumentModel implements Model {
 class NavigationDeterministicModel implements Model {
   requests: ModelRequest[] = [];
 
+  constructor(private readonly navigationSummary = 'Handoff solicitado para Vendas.') {}
+
   async getResponse(request: ModelRequest): Promise<ModelResponse> {
     this.requests.push(request);
     const toolNames = request.tools.map((tool) => tool.name);
     if (toolNames.includes('list_navigation_destinations')) {
       if (!hasToolResult(request, 'list_navigation_destinations')) return functionCall('list_navigation_destinations', 'navigation-list', {});
       if (!hasToolResult(request, 'request_handoff')) return functionCall('request_handoff', 'navigation-request', { DestinationRef: 'nav_sales', Reason: 'Intenção comercial inequívoca.', Summary: 'Cliente deseja comprar.' });
-      return message(JSON.stringify({ Status: 'HANDOFF_REQUESTED', Summary: 'Handoff solicitado para Vendas.', Destination: 'Vendas', Clarification: null, Error: null }));
+      return message(JSON.stringify({ Status: 'HANDOFF_REQUESTED', Summary: this.navigationSummary, Destination: 'Vendas', Clarification: null, Error: null }));
     }
     if (toolNames.includes('use_navigation')) {
       if (!hasToolResult(request, 'use_navigation')) return functionCall('use_navigation', 'root-navigation', { Task: 'Encontrar o destino comercial para a compra.', Context: 'O cliente quer comprar um produto.' });
@@ -181,6 +183,35 @@ describe('AIDocument full Agents SDK path with fake model', () => {
     const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
     const navigationResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_navigation') as any;
     expect(JSON.parse(navigationResult.output.text)).toMatchObject({ Status: 'HANDOFF_REQUESTED', Destination: 'Vendas' });
+  });
+
+  it('passes AIReference to NavigationAgent via MCP listing without leaking it through use_navigation', async () => {
+    const aiReference = 'Consulta os produtos ativos e preços, monta tabela e envia PDF ao cliente.';
+    const model = new NavigationDeterministicModel(`AIReference: ${aiReference}`);
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const server = createFakeMcpServer({ navigationDestinations: [{
+      DestinationRef: 'nav_sales', Kind: 'MENU', Description: 'Catálogo de produtos',
+      MenuGroup: 'Atendimento', Keywords: 'produtos catálogo preços', AIReference: aiReference,
+    }] });
+    const { runtime } = createTestRuntime(model as any, server, repository, sessionRepository);
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000005', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 460,
+      Messages: [{ IdMessage: 1005, Text: 'Quero uma relação de todos os produtos e preços.' }],
+    });
+
+    expect(result.statusCode).toBe(200);
+    const navigationRequests = model.requests.filter((request) => request.tools.some((tool) => tool.name === 'list_navigation_destinations'));
+    expect(navigationRequests.some((request) => JSON.stringify(request.input).includes(aiReference))).toBe(true);
+    const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
+    const navigationResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_navigation') as any;
+    expect(JSON.parse(navigationResult.output.text)).toMatchObject({ Status: 'HANDOFF_REQUESTED', Destination: 'Vendas' });
+    expect(navigationResult.output.text).not.toContain('AIReference');
+    expect(navigationResult.output.text).not.toContain(aiReference);
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL').map((entry) => entry.data.ToolName)).toEqual([
+      'list_navigation_destinations', 'request_handoff',
+    ]);
   });
 
   it('keeps a Navigation MCP failure inside use_navigation without claiming a handoff', async () => {

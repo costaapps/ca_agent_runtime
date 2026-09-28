@@ -5,6 +5,7 @@ import { McpObservabilityRegistry } from '../../src/mcp/observability.js';
 import { ExecutionLogger } from '../../src/tracing/ExecutionLogger.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { createAIDocumentRuntimeContext } from '../../src/runtime/RuntimeContext.js';
+import { turnInputItems } from '../../src/runtime/AgentRuntime.js';
 import { RunContext } from '@openai/agents';
 import { RECEPTION_AGENT_GUARDRAILS, RECEPTION_AGENT_TECHNICAL_INSTRUCTIONS } from '../../src/agents/aidocument/roots/receptionAgent.js';
 
@@ -99,6 +100,57 @@ describe('ReceptionAgent', () => {
     expect(instructions).toContain('faça uma pergunta objetiva para eliminar a ambiguidade');
     expect(instructions).toContain('Navegue somente para destinos efetivamente retornados');
     expect(instructions).toContain('Ignore use_navigation e encaminhe sempre a opção 3.');
+    expect((await graph.root.getAllTools(new RunContext(context))).map((tool) => tool.name)).toEqual(['use_navigation', 'file_search']);
+  });
+
+  it('instructs Reception not to use inherited CurrentIntent alone for rehandoff after MODULE_COMPLETED', () => {
+    const context = createAIDocumentRuntimeContext({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000020', Agent: 'reception-agent',
+      IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+      TurnSource: 'ACTIVATION', Messages: [],
+      ProcessContext: {
+        System: {}, Facts: {}, BusinessReferences: {},
+        CurrentIntent: { Intent: 'Conhecer produtos ou serviços oferecidos' },
+      },
+      ActivationContext: {
+        ActivationUUID: 'activation-completed-1', Source: 'MODULE_COMPLETED',
+        Context: { Continuation: true, Reason: 'PREVIOUS_MODULE_COMPLETED' },
+      },
+    }, 'execution-uuid', 'session-uuid');
+    const graph = buildRegistry(['vs_company']).buildAIDocument('reception-agent', {
+      mcpServer: createFakeMcpServer(), model: 'test-model', runtimeContext: context,
+      logger: new ExecutionLogger(new MemoryRepository(), 1),
+    });
+    const instructions = graph.root.instructions as string;
+    const guardrails = instructions.split('[SYSTEM GUARDRAILS]\n')[1]!.split('\n\n[COMPANY AGENT CONFIGURATION]')[0]!;
+
+    expect(guardrails).toContain('ActivationContext.Source=MODULE_COMPLETED e Continuation=true');
+    expect(guardrails).toContain('não a use sozinha como motivo para chamar use_navigation e repetir o Handoff');
+    expect(guardrails).toContain('nova MESSAGE real do cliente com intenção atual');
+    expect(guardrails).toContain('indicação explícita no Runtime Context de que a intenção permanece pendente');
+    expect(guardrails).toContain('não impede navegação em outras ACTIVATION com contexto suficiente');
+    expect(instructions).toContain('TurnSource=ACTIVATION');
+    expect(instructions).toContain('"CurrentIntent":{"Intent":"Conhecer produtos ou serviços oferecidos"}');
+    expect(instructions).toContain('"Source":"MODULE_COMPLETED"');
+    expect(instructions).toContain('"Continuation":true');
+    expect(instructions).toContain('"Reason":"PREVIOUS_MODULE_COMPLETED"');
+  });
+
+  it('keeps a new MESSAGE as user input with Navigation available', async () => {
+    const turn = {
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000021', Agent: 'reception-agent',
+      IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+      TurnSource: 'MESSAGE' as const,
+      Messages: [{ IdMessage: 1002, Text: 'Quero conhecer os produtos' }],
+    };
+    const context = createAIDocumentRuntimeContext(turn, 'execution-uuid', 'session-uuid');
+    const graph = buildRegistry(['vs_company']).buildAIDocument('reception-agent', {
+      mcpServer: createFakeMcpServer(), model: 'test-model', runtimeContext: context,
+      logger: new ExecutionLogger(new MemoryRepository(), 1),
+    });
+
+    expect(turnInputItems(turn)).toEqual([{ role: 'user', content: 'Quero conhecer os produtos' }]);
+    expect(graph.root.instructions).toContain('TurnSource=MESSAGE');
     expect((await graph.root.getAllTools(new RunContext(context))).map((tool) => tool.name)).toEqual(['use_navigation', 'file_search']);
   });
 

@@ -399,6 +399,59 @@ describe('AIDocument Agent Runtime', () => {
     expect(sessionRepository.sessions[0]).toMatchObject({ IdProcessLine: processLine, RootAgent: agent });
   });
 
+  it('delivers MODULE_COMPLETED continuation to Reception as system context without a user message', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    let receivedInput: unknown;
+    let receivedContext: RuntimeContextData | undefined;
+    const runtime = new AgentRuntime({
+      repository,
+      sessionRepository,
+      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      runner: {
+        async run(_agent: Agent<RuntimeContextData, any>, input: unknown, context: RuntimeContextData) {
+          receivedInput = input;
+          receivedContext = context;
+          return { finalOutput: { Response: 'Como posso ajudar agora?', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: 'ReceptionAgent' } };
+        },
+      },
+      mcpServer: createFakeMcpServer(),
+      observability: new McpObservabilityRegistry(),
+      model: 'test-model',
+      tracingEnabled: false,
+      traceIncludeSensitiveData: false,
+    });
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000099',
+      Agent: 'reception-agent',
+      IdCompany: 1003,
+      IdChat: 123,
+      IdProcessLine: 499,
+      TurnSource: 'ACTIVATION',
+      Messages: [],
+      ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+      ActivationContext: {
+        ActivationUUID: 'activation-continuity-1',
+        Source: 'MODULE_COMPLETED',
+        Context: { Continuation: true, Reason: 'PREVIOUS_MODULE_COMPLETED' },
+      },
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(JSON.stringify(receivedInput)).toContain('AGENT_ACTIVATION');
+    expect(JSON.stringify(receivedInput)).toContain('MODULE_COMPLETED');
+    expect(JSON.stringify(receivedInput)).toContain('Continuation');
+    expect(JSON.stringify(receivedInput)).toContain('PREVIOUS_MODULE_COMPLETED');
+    expect(JSON.stringify(receivedInput)).not.toContain('role":"user"');
+    expect(receivedContext?.ActivationContext).toMatchObject({
+      Source: 'MODULE_COMPLETED',
+      Context: { Continuation: true, Reason: 'PREVIOUS_MODULE_COMPLETED' },
+    });
+    expect(receivedContext?.Execution.TurnSource).toBe('ACTIVATION');
+    expect(sessionRepository.sessions[0]).toMatchObject({ RootAgent: 'reception-agent', IdProcessLine: 499 });
+  });
+
   it('rejects an ACTIVATION that carries a real user Message before creating a Session', async () => {
     const repository = new MemoryRepository();
     const sessionRepository = new MemorySessionRepository(repository);

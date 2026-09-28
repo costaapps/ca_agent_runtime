@@ -90,7 +90,8 @@ O Runtime cria `ExecutionUUID`, mantém a memória nativa do Agents SDK em `AIAg
 
 - `AgentRegistry` monta agents por execução; `ExpectedOutput` não fica preso em singleton.
 - Root Agents usam as capabilities locais `use_flow_capabilities` e `use_navigation`; somente `FlowAgent` recebe MCP Flow e somente `NavigationAgent` recebe MCP Navigation.
-- `ReceptionAgent` mantém `file_search` e usa Navigation para destinos/Handoff. Sales e Support também podem usar Navigation para continuidade de ownership.
+- `ReceptionAgent` mantém `file_search` nos Vector Stores configurados e usa `use_navigation` para destinos/Handoff; não recebe Flow. Suas instruções são compostas na ordem: regras técnicas, guardrails, instruções empresariais congeladas na Session, seção reservada para instruções de Knowledge e contexto autoritativo do Turn. A configuração dinâmica de bases de conhecimento ainda não faz parte desta PoC.
+- Sales e Support continuam com Flow e Navigation para suas operações e continuidade de ownership.
 - O handoff nativo do SDK usa `Reason` estruturado e grava somente justificativa operacional.
 - `RuntimeContext.Execution` contém os IDs, `TurnSource`, Activation e revisão vindos do Core; `ProcessContext` é readonly e `Resolved` recebe apenas dados técnicos descobertos.
 - `ToolPolicies` declara `requires` e `meta`; o MCP recebe apenas os paths necessários.

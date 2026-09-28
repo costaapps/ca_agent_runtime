@@ -9,7 +9,9 @@ export interface AgentPlatformRootAgentConfig {
   name: string;
   handoffDescription: string;
   instructions: string;
+  guardrails?: string;
   companyInstructions?: string | null;
+  knowledgeInstructions?: string | null;
   model: string;
   mcpServer: MCPServer;
   runtimeContext: RuntimeContextData;
@@ -47,8 +49,12 @@ export function createAgentPlatformRootAgent(config: AgentPlatformRootAgentConfi
 
   const companyInstructions = config.companyInstructions ?? '';
   const instructions = [
-    `[TECHNICAL INSTRUCTIONS]\n${config.instructions}`,
+    `[SYSTEM TECHNICAL INSTRUCTIONS]\n${config.instructions}`,
+    ...(config.guardrails === undefined ? [] : [`[SYSTEM GUARDRAILS]\n${config.guardrails}`]),
     `[COMPANY AGENT CONFIGURATION]\n${companyInstructions || '(nenhuma instrução empresarial configurada)'}`,
+    ...(config.knowledgeInstructions === undefined ? [] : [
+      `[KNOWLEDGE CONFIGURATION / KNOWLEDGE INSTRUCTIONS]\n${config.knowledgeInstructions || '(nenhuma instrução específica de Knowledge configurada)'}`,
+    ]),
     `[RUNTIME CONTEXT]\n${runtimeContextInstructions(config.runtimeContext)}`,
   ].join('\n\n');
   const root = new Agent<RuntimeContextData, typeof AgentRootOutputSchema>({

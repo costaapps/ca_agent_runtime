@@ -73,6 +73,13 @@ describe('ReceptionAgent', () => {
     expect(instructions).toContain('Use um tom acolhedor.');
     expect(instructions).toContain('(nenhuma instrução específica de Knowledge configurada)');
     expect(instructions).toContain('ProcessContextRevision=0');
+    expect(RECEPTION_AGENT_TECHNICAL_INSTRUCTIONS).toContain('MESSAGE significa que o cliente acabou de enviar uma nova fala');
+    expect(RECEPTION_AGENT_TECHNICAL_INSTRUCTIONS).toContain('ACTIVATION significa que você acabou de assumir uma conversa em andamento');
+    expect(RECEPTION_AGENT_TECHNICAL_INSTRUCTIONS).toContain('Messages vazio é válido');
+    expect(RECEPTION_AGENT_GUARDRAILS).toContain('MODULE_COMPLETED, HANDOFF, SEQUENTIAL ou QUEUED');
+    expect(RECEPTION_AGENT_GUARDRAILS).toContain('sem reiniciar com saudação ou apresentação desnecessária');
+    expect(RECEPTION_AGENT_GUARDRAILS).toContain('não invente uma intenção, não navegue por adivinhação');
+    expect(RECEPTION_AGENT_GUARDRAILS).toContain('não use uma mensagem anterior como se tivesse acabado de ser dita');
     expect(instructions).not.toContain('use_flow_capabilities');
   });
 

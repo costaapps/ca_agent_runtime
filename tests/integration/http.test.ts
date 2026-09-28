@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app.js';
 import { AgentNotFoundError } from '../../src/errors/RuntimeError.js';
+import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
 
 describe('HTTP API', () => {
   it('validates requests and exposes the health endpoint', async () => {
@@ -55,11 +56,13 @@ describe('HTTP API', () => {
   });
 
   it('exposes AIDocument turn and session close routes without changing the legacy route', async () => {
+    const receivedTurns: any[] = [];
     const app = createApp({
       async run(input: any) {
         return { statusCode: 200 as const, response: { Success: true as const, ExecutionUUID: 'legacy-uuid', Output: { Intent: input.ExpectedOutput.Name } } };
       },
       async runTurn(input: any) {
+        receivedTurns.push(input);
         return { statusCode: 200 as const, response: { Success: true as const, TurnUUID: input.TurnUUID, SessionUUID: 'session-uuid', ExecutionUUID: 'execution-uuid', Agent: input.Agent, Response: 'Ok', Control: { CompletionRequested: false, Reason: null } } };
       },
       async closeSession() {
@@ -80,6 +83,19 @@ describe('HTTP API', () => {
       });
       expect(turn.status).toBe(200);
       expect(await turn.json()).toMatchObject({ Success: true, SessionUUID: 'session-uuid' });
+
+      const knowledgeTurn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ TurnUUID: '14ed24ea-0000-4000-8000-000000000611', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 611, Text: 'Reembolso?' }], KnowledgeConfiguration: configuredKnowledge }),
+      });
+      expect(knowledgeTurn.status).toBe(200);
+      expect(receivedTurns.at(-1).KnowledgeConfiguration.References).toHaveLength(2);
+
+      const invalidKnowledge = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ TurnUUID: '14ed24ea-0000-4000-8000-000000000612', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 612, Text: 'Reembolso?' }], KnowledgeConfiguration: { ...configuredKnowledge, APIKey: 'not-allowed' } }),
+      });
+      expect(invalidKnowledge.status).toBe(400);
 
       const activation = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },

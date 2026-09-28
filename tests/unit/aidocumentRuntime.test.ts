@@ -7,6 +7,7 @@ import { McpObservabilityRegistry } from '../../src/mcp/observability.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { MemorySessionRepository } from '../helpers/memorySessionRepository.js';
 import type { RuntimeContextData } from '../../src/runtime/RuntimeContext.js';
+import { hashLegacyTurnPayload } from '../../src/runtime/TurnIdentity.js';
 
 function makeTurn(overrides: Partial<{ TurnUUID: string; Agent: string; Text: string; IdMessage: number }> = {}) {
   return {
@@ -55,6 +56,91 @@ describe('AIDocument Agent Runtime', () => {
     expect(calls).toBe(1);
     expect(sessionRepository.sessions[0]).toMatchObject({ RootAgent: 'sales-agent', Status: 'OPEN' });
     expect(repository.executions[0]?.data).toMatchObject({ TurnUUID: makeTurn().TurnUUID, IdProcessLineFlow: null, IdAIAgentSession: 1 });
+  });
+
+  it('freezes the company configuration per Session and uses a new revision for a new ProcessLine', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const prompts: string[] = [];
+    const runtime = new AgentRuntime({
+      repository,
+      sessionRepository,
+      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      runner: {
+        async run(agent: Agent<RuntimeContextData, any>) {
+          prompts.push(agent.instructions as string);
+          return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+        },
+      },
+      mcpServer: createFakeMcpServer(), observability: new McpObservabilityRegistry(), model: 'test-model',
+      tracingEnabled: true, traceIncludeSensitiveData: false,
+    });
+    const config4 = { Code: 'reception-agent', Revision: 4, Instructions: 'Orientação versão quatro.' };
+    const config5 = { Code: 'reception-agent', Revision: 5, Instructions: 'Orientação versão cinco.' };
+
+    await runtime.runTurn({ ...makeTurn({ Agent: 'reception-agent' }), AgentConfiguration: config4 });
+    await runtime.runTurn({ ...makeTurn({ Agent: 'reception-agent', TurnUUID: '14ed24ea-0000-4000-8000-000000000030', IdMessage: 30 }), AgentConfiguration: config5 });
+    await runtime.runTurn({ ...makeTurn({ Agent: 'reception-agent', TurnUUID: '14ed24ea-0000-4000-8000-000000000031', IdMessage: 31 }), IdProcessLine: 457, AgentConfiguration: config5 });
+
+    expect(sessionRepository.sessions[0]).toMatchObject({ AgentConfigurationRevision: 4 });
+    expect(JSON.parse(sessionRepository.sessions[0]!.AgentConfigurationJSON!)).toEqual(config4);
+    expect(prompts[0]).toContain(config4.Instructions);
+    expect(prompts[1]).toContain(config4.Instructions);
+    expect(prompts[1]).not.toContain(config5.Instructions);
+    expect(prompts[2]).toContain(config5.Instructions);
+    expect(sessionRepository.sessions[1]).toMatchObject({ IdProcessLine: 457, AgentConfigurationRevision: 5 });
+    const warning = repository.logs.find((entry) => entry.data.ErrorMessage?.startsWith('AGENT_CONFIGURATION_FROZEN:'));
+    expect(warning).toBeDefined();
+    expect(warning?.data.ErrorMessage).not.toContain(config4.Instructions);
+    expect(warning?.data.ErrorMessage).not.toContain(config5.Instructions);
+  });
+
+  it('freezes default configuration when the first Session input is an ACTIVATION', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    let prompt = '';
+    const runtime = new AgentRuntime({
+      repository, sessionRepository,
+      registry: new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] }),
+      runner: { async run(agent: Agent<RuntimeContextData, any>) { prompt = agent.instructions as string; return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } }; } },
+      mcpServer: createFakeMcpServer(), observability: new McpObservabilityRegistry(), model: 'test-model', tracingEnabled: false, traceIncludeSensitiveData: false,
+    });
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000032', Agent: 'reception-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 470,
+      TurnSource: 'ACTIVATION', Messages: [], ActivationContext: { ActivationUUID: 'activation-config', Source: 'MODULE_COMPLETED', Context: {} },
+    });
+
+    expect(result.statusCode).toBe(200);
+    expect(sessionRepository.sessions[0]).toMatchObject({ AgentConfigurationRevision: 0, AgentConfigurationJSON: JSON.stringify({ Code: 'reception-agent', Revision: 0, Instructions: '' }) });
+    expect(prompt).toContain('[COMPANY AGENT CONFIGURATION]');
+  });
+
+  it('returns an idempotency conflict for the same TurnUUID with changed AgentConfiguration', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const runtime = makeRuntime(repository, sessionRepository, {
+      async run(agent: Agent<RuntimeContextData, any>) { return { finalOutput: { Response: agent.name, Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } }; },
+    });
+    const turn = { ...makeTurn(), AgentConfiguration: { Code: 'sales-agent', Revision: 1, Instructions: 'Primeira.' } };
+    await runtime.runTurn(turn);
+    const conflict = await runtime.runTurn({ ...turn, AgentConfiguration: { ...turn.AgentConfiguration, Revision: 2, Instructions: 'Segunda.' } });
+    expect(conflict).toMatchObject({ statusCode: 409, response: { Success: false, Error: { Code: 'TURN_IDEMPOTENCY_CONFLICT' } } });
+  });
+
+  it('replays historical Turns whose persisted hash predates AgentConfiguration', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    let calls = 0;
+    const runtime = makeRuntime(repository, sessionRepository, {
+      async run(agent: Agent<RuntimeContextData, any>) { calls += 1; return { finalOutput: { Response: agent.name, Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } }; },
+    });
+    const turn = makeTurn();
+    const first = await runtime.runTurn(turn);
+    repository.executions[0]!.data.TurnPayloadHash = hashLegacyTurnPayload(turn);
+    const replay = await runtime.runTurn(turn);
+    expect(replay).toEqual(first);
+    expect(calls).toBe(1);
   });
 
   it('freezes the RootAgent and detects a TurnUUID payload conflict', async () => {

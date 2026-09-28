@@ -9,6 +9,7 @@ export interface AgentPlatformRootAgentConfig {
   name: string;
   handoffDescription: string;
   instructions: string;
+  companyInstructions?: string | null;
   model: string;
   mcpServer: MCPServer;
   runtimeContext: RuntimeContextData;
@@ -44,12 +45,18 @@ export function createAgentPlatformRootAgent(config: AgentPlatformRootAgentConfi
     agents.push(navigationAgent);
   }
 
+  const companyInstructions = config.companyInstructions ?? '';
+  const instructions = [
+    `[TECHNICAL INSTRUCTIONS]\n${config.instructions}`,
+    `[COMPANY AGENT CONFIGURATION]\n${companyInstructions || '(nenhuma instrução empresarial configurada)'}`,
+    `[RUNTIME CONTEXT]\n${runtimeContextInstructions(config.runtimeContext)}`,
+  ].join('\n\n');
   const root = new Agent<RuntimeContextData, typeof AgentRootOutputSchema>({
     name: config.name,
     handoffDescription: config.handoffDescription,
     model: config.model,
     outputType: AgentRootOutputSchema,
-    instructions: `${config.instructions}\n${runtimeContextInstructions(config.runtimeContext)}`,
+    instructions,
     tools: [...tools, ...(config.additionalTools ?? [])],
     mcpServers: [],
   });

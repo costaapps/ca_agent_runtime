@@ -33,4 +33,11 @@ describe('Agent turn identity', () => {
     expect(payload).toContain('activation-20');
     expect(payload).toContain('MODULE_COMPLETED');
   });
+
+  it('includes AgentConfiguration contract, Revision and Instructions in the turn hash', () => {
+    const configured = { ...baseTurn, AgentConfiguration: { Code: 'reception-agent', Revision: 4, Instructions: 'Fale com cordialidade.', Name: 'Recepção' } };
+    const changedInstructions = { ...configured, AgentConfiguration: { ...configured.AgentConfiguration, Instructions: 'Outra orientação.' } };
+    expect(canonicalTurnPayload(configured)).toContain('Fale com cordialidade.');
+    expect(hashTurnPayload(changedInstructions)).not.toBe(hashTurnPayload(configured));
+  });
 });

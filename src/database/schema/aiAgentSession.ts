@@ -1,4 +1,4 @@
-import { index, int, bigint, char, datetime, mysqlTable, unique, varchar } from 'drizzle-orm/mysql-core';
+import { index, int, bigint, char, datetime, mysqlTable, unique, varchar, longtext } from 'drizzle-orm/mysql-core';
 
 export const aiAgentSession = mysqlTable('AIAgentSession', {
   IdAIAgentSession: bigint('IdAIAgentSession', { mode: 'number' }).autoincrement().primaryKey(),
@@ -7,6 +7,8 @@ export const aiAgentSession = mysqlTable('AIAgentSession', {
   IdChat: int('IdChat').notNull(),
   IdProcessLine: int('IdProcessLine').notNull(),
   RootAgent: varchar('RootAgent', { length: 250 }).notNull(),
+  AgentConfigurationRevision: int('AgentConfigurationRevision'),
+  AgentConfigurationJSON: longtext('AgentConfigurationJSON'),
   Status: varchar('Status', { length: 20 }).notNull(),
   StartedAt: datetime('StartedAt', { mode: 'date', fsp: 3 }).notNull(),
   LastActivityAt: datetime('LastActivityAt', { mode: 'date', fsp: 3 }).notNull(),

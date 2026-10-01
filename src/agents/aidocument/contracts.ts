@@ -2,6 +2,8 @@ import type { Agent, MCPServer } from '@openai/agents';
 import type { RuntimeContextData } from '../../runtime/RuntimeContext.js';
 import type { ExecutionLogger } from '../../tracing/ExecutionLogger.js';
 import type { AgentConfiguration } from '../../api/contracts/agentTurnInput.js';
+import type { KnowledgeConfiguration } from '../../api/contracts/knowledgeConfiguration.js';
+import type { KnowledgeSearchService } from '../../knowledge/KnowledgeSearchService.js';
 
 export interface AIDocumentAgentGraph {
   root: Agent<RuntimeContextData, any>;
@@ -14,11 +16,11 @@ export interface AIDocumentAgentBuildContext {
   runtimeContext: RuntimeContextData;
   logger: ExecutionLogger;
   agentConfiguration?: AgentConfiguration | null;
+  knowledgeConfiguration?: KnowledgeConfiguration;
+  knowledgeSearchService?: KnowledgeSearchService;
 }
 
-export interface ReceptionAgentBuildContext extends AIDocumentAgentBuildContext {
-  vectorStoreIds: readonly string[];
-}
+export type ReceptionAgentBuildContext = AIDocumentAgentBuildContext;
 
 export type HostedAgentGraph = AIDocumentAgentGraph;
 export type HostedAgentBuildContext = AIDocumentAgentBuildContext;

@@ -4,6 +4,7 @@ import type { AgentRunInput } from '../api/contracts/agentRunInput.js';
 import type { AgentRunOutput, AgentRunSuccess } from '../api/contracts/agentRunOutput.js';
 import type { AgentSessionCloseInput, AgentSessionCloseOutput } from '../api/contracts/agentSessionClose.js';
 import { AgentConfigurationSchema, type AgentConfiguration, AgentTurnInputSchema, type AgentTurnInput } from '../api/contracts/agentTurnInput.js';
+import { KnowledgeConfigurationSchema, effectiveKnowledgeConfiguration, type KnowledgeConfiguration } from '../api/contracts/knowledgeConfiguration.js';
 import { AIDocumentRootOutputSchema, type AgentTurnFailure, type AgentTurnOutput, type AgentTurnSuccess } from '../api/contracts/agentTurnOutput.js';
 import { AgentNotFoundError, RuntimeError, asRuntimeError } from '../errors/RuntimeError.js';
 import { ErrorCodes } from '../errors/errorCodes.js';
@@ -19,8 +20,11 @@ import { createOpenAITraceId, type TraceSettings } from '../openai/tracing.js';
 import type { OpenAIRunner } from '../openai/runner.js';
 import { McpObservabilityRegistry } from '../mcp/observability.js';
 import { DatabaseAgentSession } from '../session/DatabaseAgentSession.js';
-import { canonicalTurnInput, hashLegacyTurnPayload, hashTurnPayload } from './TurnIdentity.js';
+import { canonicalTurnInput, hashLegacyTurnPayload, hashPreKnowledgeTurnPayload, hashTurnPayload } from './TurnIdentity.js';
 import { SessionMutex } from './SessionMutex.js';
+import { KnowledgeSearchService } from '../knowledge/KnowledgeSearchService.js';
+import { EnvironmentProviderCredentialResolver } from '../knowledge/credentials/EnvironmentProviderCredentialResolver.js';
+import { OpenAIKnowledgeSearchProvider } from '../knowledge/providers/OpenAIKnowledgeSearchProvider.js';
 
 export interface AgentRuntimeOptions {
   repository: AiExecutionRepository;
@@ -34,6 +38,7 @@ export interface AgentRuntimeOptions {
   traceIncludeSensitiveData: boolean;
   mcpServerName?: string;
   sessionMutex?: SessionMutex;
+  knowledgeSearchService?: KnowledgeSearchService;
 }
 
 export interface AgentRuntimeRunResult {
@@ -121,12 +126,25 @@ function sessionAgentConfiguration(session: AgentSessionRecord): AgentConfigurat
   return session.RootAgent === 'reception-agent' ? DEFAULT_RECEPTION_AGENT_CONFIGURATION : null;
 }
 
+function sessionKnowledgeConfiguration(session: AgentSessionRecord): KnowledgeConfiguration {
+  if (!session.KnowledgeConfigurationJSON) return effectiveKnowledgeConfiguration(undefined);
+  try {
+    return KnowledgeConfigurationSchema.parse(JSON.parse(session.KnowledgeConfigurationJSON));
+  } catch (error) {
+    throw new RuntimeError(ErrorCodes.PersistenceError, 'Snapshot KnowledgeConfiguration persistido na Session é inválido.', error);
+  }
+}
+
 export class AgentRuntime {
   private readonly sessionMutex: SessionMutex;
   private readonly activeTurns = new Map<string, string>();
+  private readonly knowledgeSearchService: KnowledgeSearchService;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     this.sessionMutex = options.sessionMutex ?? new SessionMutex();
+    this.knowledgeSearchService = options.knowledgeSearchService ?? new KnowledgeSearchService(
+      new OpenAIKnowledgeSearchProvider(), new EnvironmentProviderCredentialResolver(),
+    );
   }
 
   async run(input: AgentRunInput): Promise<AgentRuntimeRunResult> {
@@ -254,11 +272,13 @@ export class AgentRuntime {
           RootAgent: input.Agent,
           AgentConfigurationRevision: configuration?.Revision ?? null,
           AgentConfigurationJSON: configuration ? json(configuration) : null,
+          KnowledgeConfigurationJSON: json(effectiveKnowledgeConfiguration(input.KnowledgeConfiguration)),
           Status: 'OPEN', StartedAt: now, LastActivityAt: now, ClosedAt: null,
         });
       }
       if (session.Status === 'CLOSED') return turnFailure(input, ErrorCodes.AgentSessionClosed, 'A Session do AIDocument está fechada.', session.SessionUUID);
       const frozenConfiguration = sessionAgentConfiguration(session);
+      const frozenKnowledge = sessionKnowledgeConfiguration(session);
 
       const executionUUID = randomUUID();
       const openAITraceId = createOpenAITraceId();
@@ -299,12 +319,17 @@ export class AgentRuntime {
             `AgentConfiguration recebida (Revision ${input.AgentConfiguration.Revision}) ignorada; Session mantém Revision ${frozenConfiguration.Revision}.`,
           );
         }
+        if (input.KnowledgeConfiguration && json(input.KnowledgeConfiguration) !== json(frozenKnowledge)) {
+          await logger.runtimeWarning('KNOWLEDGE_CONFIGURATION_FROZEN', 'KnowledgeConfiguration recebida ignorada; Session mantém o snapshot original.');
+        }
         const graph = this.options.registry.buildHostedAgent(session.RootAgent, {
           mcpServer: this.options.mcpServer,
           model: this.options.model,
           runtimeContext: context,
           logger,
           agentConfiguration: frozenConfiguration,
+          knowledgeConfiguration: frozenKnowledge,
+          knowledgeSearchService: this.knowledgeSearchService,
         });
         for (const agent of graph.agents) {
           agent.on('agent_start', (_runContext, startedAgent) => { void logger.agentStart(startedAgent.name).catch(() => undefined); });
@@ -356,8 +381,11 @@ export class AgentRuntime {
   }
 
   private resolveExistingTurn(input: AgentTurnInput, existing: StoredTurnExecution, payloadHash: string): AgentTurnRuntimeResult {
-    const isLegacyReplay = input.AgentConfiguration == null && existing.TurnPayloadHash === hashLegacyTurnPayload(input);
-    if (existing.TurnPayloadHash !== payloadHash && !isLegacyReplay) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', undefined, existing.ExecutionUUID);
+    const knowledge = effectiveKnowledgeConfiguration(input.KnowledgeConfiguration);
+    const hasNoKnowledge = knowledge.Connections.length === 0 && knowledge.References.length === 0;
+    const isPreKnowledgeReplay = hasNoKnowledge && existing.TurnPayloadHash === hashPreKnowledgeTurnPayload(input);
+    const isLegacyReplay = hasNoKnowledge && input.AgentConfiguration == null && existing.TurnPayloadHash === hashLegacyTurnPayload(input);
+    if (existing.TurnPayloadHash !== payloadHash && !isPreKnowledgeReplay && !isLegacyReplay) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', undefined, existing.ExecutionUUID);
     if (!existing.FinishedAt) return turnFailure(input, ErrorCodes.TurnInProgress, 'O Turn ainda está em execução.', existing.SessionUUID ?? undefined, existing.ExecutionUUID);
     if (!existing.SessionUUID || !existing.RootAgent) return turnFailure(input, ErrorCodes.PersistenceError, 'A execução persistida não possui Session associada.', undefined, existing.ExecutionUUID);
     if (existing.Success === 'Y') {

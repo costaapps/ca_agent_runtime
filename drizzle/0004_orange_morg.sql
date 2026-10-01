@@ -1,0 +1,1 @@
+ALTER TABLE `AIAgentSession` ADD `KnowledgeConfigurationJSON` longtext;

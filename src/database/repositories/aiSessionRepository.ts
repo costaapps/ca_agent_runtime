@@ -14,6 +14,7 @@ export interface AgentSessionRecord {
   RootAgent: string;
   AgentConfigurationRevision: number | null;
   AgentConfigurationJSON: string | null;
+  KnowledgeConfigurationJSON: string | null;
   Status: AgentSessionStatus;
   StartedAt: Date;
   LastActivityAt: Date;
@@ -76,6 +77,7 @@ export class DrizzleAgentSessionRepository implements AgentSessionRepository {
         RootAgent: data.RootAgent,
         AgentConfigurationRevision: data.AgentConfigurationRevision,
         AgentConfigurationJSON: data.AgentConfigurationJSON,
+        KnowledgeConfigurationJSON: data.KnowledgeConfigurationJSON,
         Status: data.Status,
         StartedAt: data.StartedAt,
         LastActivityAt: data.LastActivityAt,

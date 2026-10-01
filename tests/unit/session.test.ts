@@ -12,7 +12,7 @@ const context = createAIDocumentRuntimeContext({
 describe('DatabaseAgentSession', () => {
   it('reads and appends native AgentInputItems in sequence with the execution context', async () => {
     const repository = new MemorySessionRepository();
-    await repository.createSession({ SessionUUID: 'session-uuid', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, RootAgent: 'sales-agent', AgentConfigurationRevision: null, AgentConfigurationJSON: null, Status: 'OPEN', StartedAt: new Date(), LastActivityAt: new Date(), ClosedAt: null });
+    await repository.createSession({ SessionUUID: 'session-uuid', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, RootAgent: 'sales-agent', AgentConfigurationRevision: null, AgentConfigurationJSON: null, KnowledgeConfigurationJSON: null, Status: 'OPEN', StartedAt: new Date(), LastActivityAt: new Date(), ClosedAt: null });
     const session = new DatabaseAgentSession('session-uuid', repository);
     const runContext = new RunContext(context);
     await session.addItems([{ role: 'user', content: 'Olá' }], runContext);

@@ -80,6 +80,10 @@ Sucesso legado:
 
 O Runtime cria `ExecutionUUID`, mantém a memória nativa do Agents SDK em `AIAgentSessionItem`, e devolve `Response` + `Control`. `Control.ContextUpdates` pode propor somente alterações em `Facts` e `CurrentIntent`; o Core valida e persiste o ProcessContext. Repetições do mesmo `TurnUUID` são idempotentes, inclusive quando o payload contém Activation ou uma revisão de contexto diferente.
 
+`KnowledgeConfiguration` é opcional em `/v1/agent-turns` e, quando ausente, equivale a `{ "Version": 1, "Connections": [], "References": [] }`. O Core envia conexões lógicas (`Code`, `Provider`, `CredentialSource`, `CredentialReference`, `ExternalOrganizationId?`, `ExternalProjectId?`) e referências resolvidas (`Reference`, `Kind`, `Name`, `Description?`, `ConnectionCode`, `ExternalStoreId`, `ExternalFileId?`, `Filter?`, `SearchOptions?`). O Runtime congela esse payload em `AIAgentSession.KnowledgeConfigurationJSON`. `SearchOptions` aceita `MaxResults` (1–50), `ScoreThreshold` (0–1) e `RewriteQuery`. Referências de documento exigem `Filter`; referências de base pesquisam toda a base.
+
+Com referências autorizadas, qualquer Root Agent recebe a tool local `search_knowledge({ "Reference": "document:commercial/refund-policy", "Query": "Qual é o prazo?" })`. O modelo nunca fornece credenciais, IDs externos, filtro ou opções. A resposta funcional é `FOUND` ou `NO_RESULTS` com `Knowledge: { Kind, Name }` e `Results: [{ SourceName, Content }]`. A busca usa diretamente OpenAI Vector Store Search; não envolve MCP. O teste live opcional requer `RUN_OPENAI_INTEGRATION_TESTS=1` e `OPENAI_TEST_VECTOR_STORE_ID`; o cenário de documento também usa `OPENAI_TEST_DOCUMENT_FILTER_KEY` e `OPENAI_TEST_DOCUMENT_FILTER_VALUE`.
+
 `POST /v1/agent-sessions/close` fecha a Session após confirmação do Core:
 
 ```json
@@ -90,7 +94,7 @@ O Runtime cria `ExecutionUUID`, mantém a memória nativa do Agents SDK em `AIAg
 
 - `AgentRegistry` monta agents por execução; `ExpectedOutput` não fica preso em singleton.
 - Root Agents usam as capabilities locais `use_flow_capabilities` e `use_navigation`; somente `FlowAgent` recebe MCP Flow e somente `NavigationAgent` recebe MCP Navigation.
-- `ReceptionAgent` mantém `file_search` nos Vector Stores configurados e usa `use_navigation` para destinos/Handoff; não recebe Flow. Suas instruções são compostas na ordem: regras técnicas, guardrails, instruções empresariais congeladas na Session, seção reservada para instruções de Knowledge e contexto autoritativo do Turn. A configuração dinâmica de bases de conhecimento ainda não faz parte desta PoC.
+- `ReceptionAgent` usa `use_navigation` para destinos/Handoff e não recebe Flow. Knowledge V1 é opcional para todos os Root Agents: o Core envia `KnowledgeConfiguration`, congelada por Session, e o Runtime oferece a tool local `search_knowledge` apenas quando há referências autorizadas. A busca usa diretamente OpenAI Vector Store Search, sem MCP ou `file_search` bruto.
 - Sales e Support continuam com Flow e Navigation para suas operações e continuidade de ownership.
 - O handoff nativo do SDK usa `Reason` estruturado e grava somente justificativa operacional.
 - `RuntimeContext.Execution` contém os IDs, `TurnSource`, Activation e revisão vindos do Core; `ProcessContext` é readonly e `Resolved` recebe apenas dados técnicos descobertos.

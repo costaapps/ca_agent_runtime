@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { KnowledgeConfigurationSchema, type KnowledgeConfiguration } from './knowledgeConfiguration.js';
 
 export const TurnSourceSchema = z.enum(['MESSAGE', 'ACTIVATION']);
 
@@ -43,6 +44,7 @@ export const AgentTurnInputSchema = z.object({
   ProcessContext: ProcessContextSchema.default(emptyProcessContext),
   ActivationContext: ActivationContextSchema.nullable().default(null),
   AgentConfiguration: AgentConfigurationSchema.nullable().default(null),
+  KnowledgeConfiguration: KnowledgeConfigurationSchema.optional(),
 }).passthrough().superRefine((value, context) => {
   if (value.AgentConfiguration && value.AgentConfiguration.Code !== value.Agent) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['AgentConfiguration', 'Code'], message: 'AgentConfiguration.Code deve corresponder ao Agent solicitado.' });
@@ -82,6 +84,7 @@ export interface AgentTurnInput {
   ProcessContext?: ProcessContext;
   ActivationContext?: ActivationContext | null;
   AgentConfiguration?: AgentConfiguration | null;
+  KnowledgeConfiguration?: KnowledgeConfiguration;
   [key: string]: unknown;
 }
 export type ParsedAgentTurnInput = z.output<typeof AgentTurnInputSchema>;

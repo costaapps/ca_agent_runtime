@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AgentTurnInput } from '../api/contracts/agentTurnInput.js';
+import { effectiveKnowledgeConfiguration } from '../api/contracts/knowledgeConfiguration.js';
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -21,12 +22,13 @@ export function canonicalTurnPayload(input: AgentTurnInput): string {
     ProcessContext: input.ProcessContext ?? { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
     ActivationContext: input.ActivationContext ?? null,
     AgentConfiguration: input.AgentConfiguration ?? null,
+    KnowledgeConfiguration: effectiveKnowledgeConfiguration(input.KnowledgeConfiguration),
   }));
 }
 
-/** Hash format used before AgentConfiguration became part of turn identity. */
-export function hashLegacyTurnPayload(input: AgentTurnInput): string {
-  const legacyPayload = JSON.stringify(stableValue({
+/** Hash format before KnowledgeConfiguration, retaining AgentConfiguration. */
+export function hashPreKnowledgeTurnPayload(input: AgentTurnInput): string {
+  const payload = JSON.stringify(stableValue({
     Agent: input.Agent,
     IdCompany: input.IdCompany,
     IdChat: input.IdChat,
@@ -36,8 +38,17 @@ export function hashLegacyTurnPayload(input: AgentTurnInput): string {
     ProcessContextRevision: input.ProcessContextRevision ?? 0,
     ProcessContext: input.ProcessContext ?? { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
     ActivationContext: input.ActivationContext ?? null,
+    AgentConfiguration: input.AgentConfiguration ?? null,
   }));
-  return createHash('sha256').update(legacyPayload).digest('hex');
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+/** Historical format before AgentConfiguration. */
+export function hashLegacyTurnPayload(input: AgentTurnInput): string {
+  const payload = JSON.parse(canonicalTurnPayload(input)) as Record<string, unknown>;
+  delete payload.KnowledgeConfiguration;
+  delete payload.AgentConfiguration;
+  return createHash('sha256').update(JSON.stringify(stableValue(payload))).digest('hex');
 }
 
 export function canonicalTurnInput(input: AgentTurnInput): string {

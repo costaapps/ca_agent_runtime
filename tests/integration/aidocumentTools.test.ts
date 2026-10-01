@@ -40,14 +40,14 @@ describe('Agent Platform specialist tool boundaries', () => {
     const repository = new MemoryRepository();
     const logger = new ExecutionLogger(repository, 1);
     const server = createFakeMcpServer();
-    const registry = new AgentRegistry(undefined, undefined, { receptionAgentVectorStoreIds: ['vs_company'] });
+    const registry = new AgentRegistry();
 
     const support = registry.buildAIDocument('support-agent', { mcpServer: server, model: 'test-model', runtimeContext: context, logger });
     const reception = registry.buildAIDocument('reception-agent', { mcpServer: server, model: 'test-model', runtimeContext: context, logger });
     const runContext = new RunContext(context);
 
     expect((await support.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_flow_capabilities', 'use_navigation']);
-    expect((await reception.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_navigation', 'file_search']);
+    expect((await reception.root.getAllTools(runContext)).map((tool) => tool.name)).toEqual(['use_navigation']);
     expect(reception.agents.map((agent) => agent.name)).toEqual(['ReceptionAgent', 'NavigationAgent']);
     expect((await reception.agents[1]!.getAllTools(runContext)).map((tool) => tool.name)).toEqual(expect.arrayContaining([
       'list_navigation_destinations', 'request_handoff',

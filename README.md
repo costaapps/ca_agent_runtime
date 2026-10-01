@@ -72,6 +72,12 @@ Sucesso legado:
     "BusinessReferences": {},
     "CurrentIntent": {}
   },
+  "AgentContext": {
+    "Name": "Pedido de Venda",
+    "Objective": "Montar um pedido de venda.",
+    "Instructions": "Use as capabilities disponíveis para cumprir a missão.",
+    "CompletionCriteria": ["Cliente definido", "Pedido criado"]
+  },
   "Messages": [{ "IdMessage": 1001, "Text": "Quero comprar uma impressora" }]
 }
 ```
@@ -79,6 +85,10 @@ Sucesso legado:
 `TurnSource` pode ser `MESSAGE` (compatibilidade: ausência equivale a `MESSAGE`) ou `ACTIVATION`. A ativação aceita `Messages: []` e exige `ActivationContext`; o Runtime usa um item interno de sistema, nunca uma fala de usuário artificial.
 
 O Runtime cria `ExecutionUUID`, mantém a memória nativa do Agents SDK em `AIAgentSessionItem`, e devolve `Response` + `Control`. `Control.ContextUpdates` pode propor somente alterações em `Facts` e `CurrentIntent`; o Core valida e persiste o ProcessContext. Repetições do mesmo `TurnUUID` são idempotentes, inclusive quando o payload contém Activation ou uma revisão de contexto diferente.
+
+`AgentContext` é opcional e define a missão do módulo nesta ProcessLine; não identifica o Agent nem autoriza tools. Quando enviado, participa do hash de idempotência do Turn e aparece na seção `[MODULE AGENT CONTEXT]` do Root, depois das instruções técnicas, guardrails, configuração empresarial e Knowledge, antes do Runtime Context. A configuração empresarial e Knowledge continuam congelados por Session. O contexto do módulo vem do Core no Turn atual; o Runtime não consulta nem executa `CompanyModule.Params`.
+
+No `sales-agent`, as instruções técnicas e guardrails são fixos em código. O Root usa `use_flow_capabilities` para delegar ao FlowAgent, único Agent que acessa `list_flow_actions`, `describe_flow_action` e `execute_flow_action`. O FlowAgent interpreta `Effect`, `Available`, `RequiredInputs` e o resultado funcional: `COMPLETED`, `NEEDS_INPUT`, `NOT_AVAILABLE` ou `FAILED`. `NEEDS_INPUT` mantém `MissingInformation` e o `Output` original em `Results[].OutputJSON` (incluindo `Candidates`), sem ser tratado como erro MCP; o Root pergunta ao cliente e continua em um novo Turn. AUTO, PROMPT, CFL e capabilities globais são executadas e persistidas pelo Core, não por este Runtime.
 
 `KnowledgeConfiguration` é opcional em `/v1/agent-turns` e, quando ausente, equivale a `{ "Version": 1, "Connections": [], "References": [] }`. O Core envia conexões lógicas (`Code`, `Provider`, `CredentialSource`, `CredentialReference`, `ExternalOrganizationId?`, `ExternalProjectId?`) e referências resolvidas (`Reference`, `Kind`, `Name`, `Description?`, `ConnectionCode`, `ExternalStoreId`, `ExternalFileId?`, `Filter?`, `SearchOptions?`). O Runtime congela esse payload em `AIAgentSession.KnowledgeConfigurationJSON`. `SearchOptions` aceita `MaxResults` (1–50), `ScoreThreshold` (0–1) e `RewriteQuery`. Referências de documento exigem `Filter`; referências de base pesquisam toda a base.
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalTurnPayload, hashTurnPayload } from '../../src/runtime/TurnIdentity.js';
+import { canonicalTurnPayload, hashPreAgentContextTurnPayload, hashTurnPayload } from '../../src/runtime/TurnIdentity.js';
 
 const baseTurn = {
   TurnUUID: '14ed24ea-0000-4000-8000-000000000020',
@@ -39,5 +39,13 @@ describe('Agent turn identity', () => {
     const changedInstructions = { ...configured, AgentConfiguration: { ...configured.AgentConfiguration, Instructions: 'Outra orientação.' } };
     expect(canonicalTurnPayload(configured)).toContain('Fale com cordialidade.');
     expect(hashTurnPayload(changedInstructions)).not.toBe(hashTurnPayload(configured));
+  });
+
+  it('includes AgentContext in the canonical Turn and preserves the pre-context hash for historical replays', () => {
+    const mission = { Name: 'Pedido', Objective: 'Montar pedido', Instructions: 'Converse.', CompletionCriteria: ['Pedido criado'] };
+    const configured = { ...baseTurn, AgentContext: mission };
+    expect(canonicalTurnPayload(configured)).toContain('Montar pedido');
+    expect(hashTurnPayload(configured)).not.toBe(hashTurnPayload(baseTurn));
+    expect(hashPreAgentContextTurnPayload(configured)).toBe(hashPreAgentContextTurnPayload(baseTurn));
   });
 });

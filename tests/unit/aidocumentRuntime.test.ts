@@ -7,7 +7,7 @@ import { McpObservabilityRegistry } from '../../src/mcp/observability.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { MemorySessionRepository } from '../helpers/memorySessionRepository.js';
 import type { RuntimeContextData } from '../../src/runtime/RuntimeContext.js';
-import { hashLegacyTurnPayload, hashPreKnowledgeTurnPayload } from '../../src/runtime/TurnIdentity.js';
+import { hashLegacyTurnPayload, hashPreAgentContextTurnPayload, hashPreKnowledgeTurnPayload } from '../../src/runtime/TurnIdentity.js';
 import { KnowledgeConfigurationSchema } from '../../src/api/contracts/knowledgeConfiguration.js';
 import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
 
@@ -37,6 +37,46 @@ function makeRuntime(repository: MemoryRepository, sessionRepository: MemorySess
 }
 
 describe('AIDocument Agent Runtime', () => {
+  it('uses the current module mission in each Turn and conflicts on a changed AgentContext for the same TurnUUID', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const prompts: string[] = [];
+    const runtime = makeRuntime(repository, sessionRepository, {
+      async run(agent: Agent<RuntimeContextData, any>) {
+        prompts.push(agent.instructions as string);
+        return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+      },
+    });
+    const mission = { Name: 'Pedido de Venda', Objective: 'Montar pedido', Instructions: 'Use capabilities.', CompletionCriteria: ['Pedido criado'] };
+    const firstTurn = { ...makeTurn(), AgentContext: mission };
+    expect((await runtime.runTurn(firstTurn)).statusCode).toBe(200);
+    expect(prompts[0]).toContain('Objective=Montar pedido');
+    expect(repository.executions[0]?.data.TurnInputJSON).toContain('AgentContext');
+    expect((await runtime.runTurn(firstTurn)).statusCode).toBe(200);
+    expect(prompts).toHaveLength(1);
+    expect((await runtime.runTurn({ ...firstTurn, AgentContext: { ...mission, Objective: 'Outro objetivo' } })).statusCode).toBe(409);
+    const nextTurn = { ...makeTurn({ TurnUUID: '14ed24ea-0000-4000-8000-000000000098', IdMessage: 1002 }), AgentContext: { ...mission, Objective: 'Revisar pedido' } };
+    expect((await runtime.runTurn(nextTurn)).statusCode).toBe(200);
+    expect(prompts[1]).toContain('Objective=Revisar pedido');
+    expect(prompts[1]).not.toContain('Objective=Montar pedido');
+    expect(sessionRepository.sessions).toHaveLength(1);
+  });
+
+  it('replays pre-AgentContext Turns only when the new payload has no module context', async () => {
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const runtime = makeRuntime(repository, sessionRepository, {
+      async run(agent: Agent<RuntimeContextData, any>) {
+        return { finalOutput: { Response: 'Ok', Control: { CompletionRequested: false, Reason: null } }, lastAgent: { name: agent.name } };
+      },
+    });
+    const turn = makeTurn();
+    const first = await runtime.runTurn(turn);
+    repository.executions[0]!.data.TurnPayloadHash = hashPreAgentContextTurnPayload(turn);
+    expect(await runtime.runTurn(turn)).toEqual(first);
+    expect((await runtime.runTurn({ ...turn, AgentContext: { Name: 'Pedido', Objective: 'Montar pedido', Instructions: '', CompletionCriteria: [] } })).statusCode).toBe(409);
+  });
+
   it('creates a Session, persists the turn, and reuses the persisted result idempotently', async () => {
     const repository = new MemoryRepository();
     const sessionRepository = new MemorySessionRepository(repository);

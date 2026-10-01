@@ -32,6 +32,13 @@ export const AgentConfigurationSchema = z.object({
   Name: z.string().nullable().optional(),
 });
 
+export const AgentContextSchema = z.object({
+  Name: z.string().min(1),
+  Objective: z.string().min(1),
+  Instructions: z.string(),
+  CompletionCriteria: z.array(z.string().min(1)),
+}).strict();
+
 export const AgentTurnInputSchema = z.object({
   TurnUUID: z.string().uuid(),
   Agent: z.string().min(1),
@@ -45,6 +52,7 @@ export const AgentTurnInputSchema = z.object({
   ActivationContext: ActivationContextSchema.nullable().default(null),
   AgentConfiguration: AgentConfigurationSchema.nullable().default(null),
   KnowledgeConfiguration: KnowledgeConfigurationSchema.optional(),
+  AgentContext: AgentContextSchema.nullable().default(null),
 }).passthrough().superRefine((value, context) => {
   if (value.AgentConfiguration && value.AgentConfiguration.Code !== value.Agent) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['AgentConfiguration', 'Code'], message: 'AgentConfiguration.Code deve corresponder ao Agent solicitado.' });
@@ -72,6 +80,7 @@ export type TurnSource = z.infer<typeof TurnSourceSchema>;
 export type ProcessContext = z.infer<typeof ProcessContextSchema>;
 export type ActivationContext = z.infer<typeof ActivationContextSchema>;
 export type AgentConfiguration = z.output<typeof AgentConfigurationSchema>;
+export type AgentContext = z.output<typeof AgentContextSchema>;
 export interface AgentTurnInput {
   TurnUUID: string;
   Agent: string;
@@ -85,6 +94,7 @@ export interface AgentTurnInput {
   ActivationContext?: ActivationContext | null;
   AgentConfiguration?: AgentConfiguration | null;
   KnowledgeConfiguration?: KnowledgeConfiguration;
+  AgentContext?: AgentContext | null;
   [key: string]: unknown;
 }
 export type ParsedAgentTurnInput = z.output<typeof AgentTurnInputSchema>;

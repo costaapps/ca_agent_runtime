@@ -23,7 +23,15 @@ export function canonicalTurnPayload(input: AgentTurnInput): string {
     ActivationContext: input.ActivationContext ?? null,
     AgentConfiguration: input.AgentConfiguration ?? null,
     KnowledgeConfiguration: effectiveKnowledgeConfiguration(input.KnowledgeConfiguration),
+    AgentContext: input.AgentContext ?? null,
   }));
+}
+
+/** Hash format immediately before the module AgentContext contract. */
+export function hashPreAgentContextTurnPayload(input: AgentTurnInput): string {
+  const payload = JSON.parse(canonicalTurnPayload(input)) as Record<string, unknown>;
+  delete payload.AgentContext;
+  return createHash('sha256').update(JSON.stringify(stableValue(payload))).digest('hex');
 }
 
 /** Hash format before KnowledgeConfiguration, retaining AgentConfiguration. */
@@ -48,6 +56,7 @@ export function hashLegacyTurnPayload(input: AgentTurnInput): string {
   const payload = JSON.parse(canonicalTurnPayload(input)) as Record<string, unknown>;
   delete payload.KnowledgeConfiguration;
   delete payload.AgentConfiguration;
+  delete payload.AgentContext;
   return createHash('sha256').update(JSON.stringify(stableValue(payload))).digest('hex');
 }
 

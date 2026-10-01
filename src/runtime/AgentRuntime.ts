@@ -20,7 +20,7 @@ import { createOpenAITraceId, type TraceSettings } from '../openai/tracing.js';
 import type { OpenAIRunner } from '../openai/runner.js';
 import { McpObservabilityRegistry } from '../mcp/observability.js';
 import { DatabaseAgentSession } from '../session/DatabaseAgentSession.js';
-import { canonicalTurnInput, hashLegacyTurnPayload, hashPreKnowledgeTurnPayload, hashTurnPayload } from './TurnIdentity.js';
+import { canonicalTurnInput, hashLegacyTurnPayload, hashPreAgentContextTurnPayload, hashPreKnowledgeTurnPayload, hashTurnPayload } from './TurnIdentity.js';
 import { SessionMutex } from './SessionMutex.js';
 import { KnowledgeSearchService } from '../knowledge/KnowledgeSearchService.js';
 import { EnvironmentProviderCredentialResolver } from '../knowledge/credentials/EnvironmentProviderCredentialResolver.js';
@@ -328,6 +328,7 @@ export class AgentRuntime {
           runtimeContext: context,
           logger,
           agentConfiguration: frozenConfiguration,
+          agentContext: input.AgentContext,
           knowledgeConfiguration: frozenKnowledge,
           knowledgeSearchService: this.knowledgeSearchService,
         });
@@ -383,9 +384,11 @@ export class AgentRuntime {
   private resolveExistingTurn(input: AgentTurnInput, existing: StoredTurnExecution, payloadHash: string): AgentTurnRuntimeResult {
     const knowledge = effectiveKnowledgeConfiguration(input.KnowledgeConfiguration);
     const hasNoKnowledge = knowledge.Connections.length === 0 && knowledge.References.length === 0;
-    const isPreKnowledgeReplay = hasNoKnowledge && existing.TurnPayloadHash === hashPreKnowledgeTurnPayload(input);
-    const isLegacyReplay = hasNoKnowledge && input.AgentConfiguration == null && existing.TurnPayloadHash === hashLegacyTurnPayload(input);
-    if (existing.TurnPayloadHash !== payloadHash && !isPreKnowledgeReplay && !isLegacyReplay) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', undefined, existing.ExecutionUUID);
+    const hasNoAgentContext = input.AgentContext == null;
+    const isPreAgentContextReplay = hasNoAgentContext && existing.TurnPayloadHash === hashPreAgentContextTurnPayload(input);
+    const isPreKnowledgeReplay = hasNoAgentContext && hasNoKnowledge && existing.TurnPayloadHash === hashPreKnowledgeTurnPayload(input);
+    const isLegacyReplay = hasNoAgentContext && hasNoKnowledge && input.AgentConfiguration == null && existing.TurnPayloadHash === hashLegacyTurnPayload(input);
+    if (existing.TurnPayloadHash !== payloadHash && !isPreAgentContextReplay && !isPreKnowledgeReplay && !isLegacyReplay) return turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.', undefined, existing.ExecutionUUID);
     if (!existing.FinishedAt) return turnFailure(input, ErrorCodes.TurnInProgress, 'O Turn ainda está em execução.', existing.SessionUUID ?? undefined, existing.ExecutionUUID);
     if (!existing.SessionUUID || !existing.RootAgent) return turnFailure(input, ErrorCodes.PersistenceError, 'A execução persistida não possui Session associada.', undefined, existing.ExecutionUUID);
     if (existing.Success === 'Y') {

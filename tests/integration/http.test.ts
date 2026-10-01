@@ -91,6 +91,26 @@ describe('HTTP API', () => {
       expect(knowledgeTurn.status).toBe(200);
       expect(receivedTurns.at(-1).KnowledgeConfiguration.References).toHaveLength(2);
 
+      const moduleTurn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          TurnUUID: '14ed24ea-0000-4000-8000-000000000613', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+          Messages: [{ IdMessage: 613, Text: 'Faça um pedido.' }],
+          AgentContext: { Name: 'Pedido de Venda', Objective: 'Montar pedido.', Instructions: 'Use capabilities.', CompletionCriteria: ['Pedido criado'] },
+        }),
+      });
+      expect(moduleTurn.status).toBe(200);
+      expect(receivedTurns.at(-1).AgentContext).toEqual({ Name: 'Pedido de Venda', Objective: 'Montar pedido.', Instructions: 'Use capabilities.', CompletionCriteria: ['Pedido criado'] });
+
+      const invalidModule = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          TurnUUID: '14ed24ea-0000-4000-8000-000000000614', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+          Messages: [{ IdMessage: 614, Text: 'Faça um pedido.' }], AgentContext: { Name: 'Pedido', Objective: 'Montar', Instructions: '', CompletionCriteria: [], FlowOptions: {} },
+        }),
+      });
+      expect(invalidModule.status).toBe(400);
+
       const invalidKnowledge = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ TurnUUID: '14ed24ea-0000-4000-8000-000000000612', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 612, Text: 'Reembolso?' }], KnowledgeConfiguration: { ...configuredKnowledge, APIKey: 'not-allowed' } }),
@@ -104,9 +124,12 @@ describe('HTTP API', () => {
           TurnSource: 'ACTIVATION', Messages: [], ProcessContextRevision: 4,
           ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
           ActivationContext: { ActivationUUID: 'activation-1', Source: 'HANDOFF', Context: { Summary: 'Cliente direcionado' } },
+          AgentContext: { Name: 'Pedido', Objective: 'Montar pedido.', Instructions: '', CompletionCriteria: ['Pedido criado'] },
         }),
       });
       expect(activation.status).toBe(200);
+      expect(receivedTurns.at(-1).AgentContext.Objective).toBe('Montar pedido.');
+      expect(receivedTurns.at(-1).Messages).toEqual([]);
 
       const incoherentActivation = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },

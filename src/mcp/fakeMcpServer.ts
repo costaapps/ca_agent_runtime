@@ -128,7 +128,7 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
     if (toolName === 'execute_flow_action' && options.executeFlowError) {
       return [{ type: 'text', text: JSON.stringify({ Success: false, Action: 'get_customer_details', Output: null, Error: options.executeFlowError }) }];
     }
-    if (toolName === 'execute_flow_action') return [{ type: 'text', text: JSON.stringify({ Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } }) }];
+    if (toolName === 'execute_flow_action') return [{ type: 'text', text: JSON.stringify({ Success: true, Action: 'get_customer_details', Status: 'COMPLETED', MissingInformation: [], Output: { CustomerCode: 'C000123' } }) }];
     if (toolName === 'list_navigation_destinations' && options.listNavigationError) return [{ type: 'text', text: options.listNavigationError.Message }];
     if (toolName === 'list_navigation_destinations') return [{ type: 'text', text: JSON.stringify({ Destinations: options.navigationDestinations ?? [
       { DestinationRef: 'nav_sales', Kind: 'MENU', Description: 'Vendas', MenuGroup: 'Atendimento', Keywords: 'comprar produto orçamento' },
@@ -204,7 +204,7 @@ export function createFakeMcpServer(options: FakeMcpServerOptions = {}): MCPServ
                         ] }
                         : toolName === 'request_handoff'
                           ? { Accepted: true, Destination: 'Vendas', Status: 'REQUESTED' }
-                          : { Success: true, Action: 'get_customer_details', Output: { CustomerCode: 'C000123' } },
+                          : { Success: true, Action: 'get_customer_details', Status: 'COMPLETED', MissingInformation: [], Output: { CustomerCode: 'C000123' } },
         isError: false,
       };
     },

@@ -8,6 +8,7 @@ import type { KnowledgeConfiguration } from '../../../api/contracts/knowledgeCon
 import type { KnowledgeSearchService } from '../../../knowledge/KnowledgeSearchService.js';
 import type { ExecutionLogger } from '../../../tracing/ExecutionLogger.js';
 import { createSearchKnowledgeTool } from '../../../knowledge/tools/createSearchKnowledgeTool.js';
+import type { AgentContext } from '../../../api/contracts/agentTurnInput.js';
 
 export const AGENT_PLATFORM_KNOWLEDGE_TECHNICAL_INSTRUCTIONS = [
   'Use somente Knowledge References autorizadas nesta Session. Quando search_knowledge estiver disponível e Company Instructions exigirem uma referência para determinado assunto, chame search_knowledge antes de responder factualmente; não substitua uma fonte exigida por memória. Se a referência exigida não estiver disponível, não invente informação.',
@@ -21,6 +22,7 @@ export interface AgentPlatformRootAgentConfig {
   instructions: string;
   guardrails?: string;
   companyInstructions?: string | null;
+  agentContext?: AgentContext | null;
   knowledgeConfiguration?: KnowledgeConfiguration;
   knowledgeSearchService?: KnowledgeSearchService;
   logger?: ExecutionLogger;
@@ -73,11 +75,21 @@ export function createAgentPlatformRootAgent(config: AgentPlatformRootAgentConfi
   ].join('\n');
 
   const companyInstructions = config.companyInstructions ?? '';
+  const moduleContext = config.agentContext;
+  const moduleInstructions = moduleContext
+    ? [
+      `Name=${moduleContext.Name}`,
+      `Objective=${moduleContext.Objective}`,
+      `Instructions=${moduleContext.Instructions}`,
+      `CompletionCriteria=${JSON.stringify(moduleContext.CompletionCriteria)}`,
+    ].join('\n')
+    : '(nenhum contexto de módulo configurado)';
   const instructions = [
     `[SYSTEM TECHNICAL INSTRUCTIONS]\n${config.instructions}\n${AGENT_PLATFORM_KNOWLEDGE_TECHNICAL_INSTRUCTIONS}`,
     ...(config.guardrails === undefined ? [] : [`[SYSTEM GUARDRAILS]\n${config.guardrails}`]),
     `[COMPANY AGENT CONFIGURATION]\n${companyInstructions || '(nenhuma instrução empresarial configurada)'}`,
     `[KNOWLEDGE CONFIGURATION / KNOWLEDGE INSTRUCTIONS]\n${knowledgeInstructions}`,
+    `[MODULE AGENT CONTEXT]\n${moduleInstructions}`,
     `[RUNTIME CONTEXT]\n${runtimeContextInstructions(config.runtimeContext)}`,
   ].join('\n\n');
   const root = new Agent<RuntimeContextData, typeof AgentRootOutputSchema>({

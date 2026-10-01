@@ -15,6 +15,15 @@ function hasToolResult(request: ModelRequest, name: string): boolean {
   return Array.isArray(request.input) && request.input.some((item) => item.type === 'function_call_result' && item.name === name);
 }
 
+function readToolResult(request: ModelRequest, name: string): Record<string, any> {
+  const item = (request.input as AgentInputItem[]).find((entry) => entry.type === 'function_call_result' && entry.name === name) as any;
+  // MCP errors reach the model as content blocks, even with useStructuredContent.
+  const text = Array.isArray(item.output)
+    ? item.output.find((block: { type: string }) => block.type === 'input_text').text
+    : item.output.text;
+  return JSON.parse(text);
+}
+
 function functionCall(name: string, callId: string, args: Record<string, unknown>): ModelResponse {
   return { usage: new Usage({ requests: 1, inputTokens: 1, outputTokens: 1, totalTokens: 2 }), output: [{ type: 'function_call', name, callId, arguments: JSON.stringify(args) }] as any };
 }
@@ -30,8 +39,6 @@ function rootOutput(response: string): string {
 class DeterministicAIDocumentModel implements Model {
   requests: ModelRequest[] = [];
 
-  constructor(private readonly flowFailure = false) {}
-
   async getResponse(request: ModelRequest): Promise<ModelResponse> {
     this.requests.push(request);
     const toolNames = request.tools.map((tool) => tool.name);
@@ -39,20 +46,23 @@ class DeterministicAIDocumentModel implements Model {
       if (!hasToolResult(request, 'list_flow_actions')) return functionCall('list_flow_actions', 'flow-list', {});
       if (!hasToolResult(request, 'describe_flow_action')) return functionCall('describe_flow_action', 'flow-describe', { Action: 'get_customer_details' });
       if (!hasToolResult(request, 'execute_flow_action')) return functionCall('execute_flow_action', 'flow-execute', { Action: 'get_customer_details', Input: {} });
+      const execution = readToolResult(request, 'execute_flow_action');
+      const failed = execution.Success === false;
       return message(JSON.stringify({
-        Status: this.flowFailure ? 'FAILED' : 'COMPLETED',
-        Summary: this.flowFailure ? 'A capability retornou erro.' : 'Capability executada.',
+        Status: failed ? 'FAILED' : execution.Status,
+        Summary: failed ? 'A capability retornou erro.' : 'Capability executada.',
         Results: [{
-          Action: 'get_customer_details',
-          OutputJSON: this.flowFailure ? null : JSON.stringify({ CustomerCode: 'C000123' }),
-          Error: this.flowFailure ? { Code: 'FLOW_ACTION_ALREADY_EXECUTED', Message: 'Já executada.' } : null,
+          Action: execution.Action,
+          OutputJSON: failed || execution.Output === null ? null : JSON.stringify(execution.Output),
+          Error: failed ? execution.Error : null,
         }],
         MissingInformation: [],
       }));
     }
     if (toolNames.includes('use_flow_capabilities')) {
       if (!hasToolResult(request, 'use_flow_capabilities')) return functionCall('use_flow_capabilities', 'root-flow', { Task: 'Consulte os dados do cliente atual.', Context: 'A tarefa deve usar a capability publicada.' });
-      return message(rootOutput(this.flowFailure ? 'A capability não pôde ser executada.' : 'Consultei a capability e encontrei o cliente C000123.'));
+      const flow = readToolResult(request, 'use_flow_capabilities');
+      return message(rootOutput(flow.Status === 'FAILED' ? 'A capability não pôde ser executada.' : 'Consultei a capability e encontrei o cliente C000123.'));
     }
     return message(rootOutput('Ok'));
   }
@@ -145,11 +155,14 @@ describe('AIDocument full Agents SDK path with fake model', () => {
     expect(sessionRepository.executionUUIDs.get(sessionUUID!)).toEqual(expect.arrayContaining([repository.executions[0]!.data.ExecutionUUID]));
   });
 
-  it('keeps execute_flow_action errors inside FlowAgent and completes the Root Agent turn', async () => {
-    const model = new DeterministicAIDocumentModel(true);
+  it.each([
+    { Code: 'FLOW_ACTION_ALREADY_EXECUTED', Message: 'Já executada.' },
+    { Code: 'CORE_TIMEOUT', Message: 'Tempo excedido ao executar a capability.' },
+  ])('maps execute_flow_action Success=false/isError=true to FlowAgent FAILED preserving $Code', async (error) => {
+    const model = new DeterministicAIDocumentModel();
     const repository = new MemoryRepository();
     const sessionRepository = new MemorySessionRepository(repository);
-    const server = createFakeMcpServer({ executeFlowError: { Code: 'FLOW_ACTION_ALREADY_EXECUTED', Message: 'Já executada.' } });
+    const server = createFakeMcpServer({ executeFlowError: error });
     const { runtime } = createTestRuntime(model, server, repository, sessionRepository);
 
     const result = await runtime.runTurn({
@@ -157,8 +170,26 @@ describe('AIDocument full Agents SDK path with fake model', () => {
       Messages: [{ IdMessage: 1002, Text: 'Consulte o cliente atual.' }],
     });
 
-    expect(result).toMatchObject({ statusCode: 200, response: { Success: true, Response: 'A capability não pôde ser executada.' } });
-    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_RESULT' && entry.data.ToolName === 'execute_flow_action')).toHaveLength(1);
+    expect(result, JSON.stringify(result)).toMatchObject({ statusCode: 200, response: { Success: true, Response: 'A capability não pôde ser executada.' } });
+    const executeRequest = model.requests.find((request) => request.tools.some((tool) => tool.name === 'execute_flow_action') && hasToolResult(request, 'execute_flow_action'))!;
+    expect(readToolResult(executeRequest, 'execute_flow_action')).toEqual({
+      Success: false, Action: 'get_customer_details', Output: null, Error: error,
+    });
+    const rootRequest = model.requests.find((request) => request.tools.some((tool) => tool.name === 'use_flow_capabilities') && hasToolResult(request, 'use_flow_capabilities'))!;
+    expect(readToolResult(rootRequest, 'use_flow_capabilities')).toEqual({
+      Status: 'FAILED', Summary: 'A capability retornou erro.',
+      Results: [{ Action: 'get_customer_details', OutputJSON: null, Error: error }],
+      MissingInformation: [],
+    });
+    const toolLogs = repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_RESULT' && entry.data.ToolName === 'execute_flow_action');
+    expect(toolLogs).toHaveLength(1);
+    expect(toolLogs[0]!.data.Status).toBe('ERROR');
+    expect(JSON.parse(toolLogs[0]!.data.OutputJSON!)).toMatchObject({
+      isError: true, structuredContent: { Success: false, Output: null, Error: error },
+    });
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL').map((entry) => entry.data.ToolName)).toEqual([
+      'list_flow_actions', 'describe_flow_action', 'execute_flow_action',
+    ]);
     expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_END')).toBe(true);
     expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_ERROR')).toBe(false);
   });

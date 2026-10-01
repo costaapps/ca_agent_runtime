@@ -70,6 +70,21 @@ describe('AIDocument contracts', () => {
     expect(AgentTurnInputSchema.safeParse({ ...base, AgentConfiguration: { Code: 'sales-agent', Revision: 1, Instructions: 'x' } }).success).toBe(false);
   });
 
+  it('validates the optional module AgentContext without technical Flow configuration', () => {
+    const base = {
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000199', Agent: 'sales-agent', IdCompany: 1001, IdChat: 2001, IdProcessLine: 3001,
+      Messages: [{ IdMessage: 99, Text: 'Pedido' }],
+    };
+    const agentContext = {
+      Name: 'Pedido de Venda', Objective: 'Montar um pedido.', Instructions: 'Use as capabilities disponíveis.',
+      CompletionCriteria: ['Cliente definido', 'Pedido criado'],
+    };
+    expect(AgentTurnInputSchema.parse(base).AgentContext).toBeNull();
+    expect(AgentTurnInputSchema.parse({ ...base, AgentContext: agentContext }).AgentContext).toEqual(agentContext);
+    expect(AgentTurnInputSchema.safeParse({ ...base, AgentContext: { ...agentContext, Objective: '' } }).success).toBe(false);
+    expect(AgentTurnInputSchema.safeParse({ ...base, AgentContext: { ...agentContext, IdProcessLineFlow: 22 } }).success).toBe(false);
+  });
+
   it('restricts ContextUpdates to Facts and CurrentIntent', () => {
     const valid = AIDocumentRootOutputSchema.safeParse({
       Response: 'Entendi.',
@@ -139,6 +154,18 @@ describe('AIDocument contracts', () => {
       Results: [{ Action: 'find_customer', OutputJSON: null, Error: { Code: 'FLOW_ERROR', Message: 'Falhou.' } }],
       MissingInformation: [],
     })).toMatchObject({ Results: [{ Action: 'find_customer', OutputJSON: null, Error: { Code: 'FLOW_ERROR' } }] });
+  });
+
+  it('preserves NEEDS_INPUT and Candidates as the original serialized capability Output', () => {
+    const output = { Status: 'AMBIGUOUS', RequestedValue: 'jadlog', Candidates: [{ Value: '12', Label: 'Jadlog' }, { Value: '18', Label: 'Jadlog Transportes' }] };
+    const result = FlowAgentOutputSchema.parse({
+      Status: 'NEEDS_INPUT', Summary: 'Escolha uma transportadora.',
+      Results: [{ Action: 'set_carrier', OutputJSON: JSON.stringify(output), Error: null }],
+      MissingInformation: ['Value'],
+    });
+    expect(JSON.parse(result.Results[0]!.OutputJSON!)).toEqual(output);
+    expect(result.MissingInformation).toEqual(['Value']);
+    expect(FlowAgentOutputSchema.parse({ ...result, Status: 'NOT_AVAILABLE' }).Status).toBe('NOT_AVAILABLE');
   });
 
   it('registers the AIDocument Root Agent keys separately from the legacy graph', () => {

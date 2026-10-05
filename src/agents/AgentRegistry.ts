@@ -9,6 +9,7 @@ import type { AIDocumentAgentBuildContext, AIDocumentAgentGraph } from './aidocu
 import { createSalesAgent } from './aidocument/roots/salesAgent.js';
 import { createSupportAgent } from './aidocument/roots/supportAgent.js';
 import { createReceptionAgent } from './aidocument/roots/receptionAgent.js';
+import { createFlowAssistAgent, type FlowAssistAgent } from './flow-assist/flowAssistAgent.js';
 
 export type { AgentGraph } from './legacy/orchestrator.js';
 
@@ -28,6 +29,9 @@ export type AgentFactory = (context: AgentBuildContext) => AgentGraph;
 export class AgentRegistry {
   private readonly factories = new Map<string, AgentFactory>();
   private readonly aidocumentFactories = new Map<string, (context: AIDocumentAgentBuildContext) => AIDocumentAgentGraph>();
+  private readonly flowAssistFactories = new Map<string, (model: string) => FlowAssistAgent>([
+    ['flow-assist-agent', createFlowAssistAgent],
+  ]);
 
   constructor(
     factories?: Record<string, AgentFactory>,
@@ -43,6 +47,16 @@ export class AgentRegistry {
 
   has(agentKey: string): boolean {
     return this.factories.has(agentKey);
+  }
+
+  hasFlowAssist(agentKey: string): boolean {
+    return this.flowAssistFactories.has(agentKey);
+  }
+
+  buildFlowAssist(agentKey: string, model: string): FlowAssistAgent {
+    const factory = this.flowAssistFactories.get(agentKey);
+    if (!factory) throw new AgentNotFoundError(agentKey);
+    return factory(model);
   }
 
   build(agentKey: string, context: AgentBuildContext): AgentGraph {

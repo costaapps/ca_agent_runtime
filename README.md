@@ -108,6 +108,83 @@ Com referências autorizadas, qualquer Root Agent recebe a tool local `search_kn
 
 ## Arquitetura operacional
 
+### Agent Assist no Flow determinístico — V1
+
+`Messages`/`Known` são a fonte exclusiva de fatos sobre a solicitação e o usuário. `Instructions`, `Description` e `ObjectDescription` definem a interpretação e transformação desses fatos. `Value` não precisa aparecer literalmente na conversa: pode ser sintetizado, formatado, convertido ou gerado, inclusive como SQL/SELECT/HTML textual, quando as regras fornecidas sustentarem sua construção. Gerar esse texto não autoriza executá-lo nem comprova resultados de consultas. Não inventar empresa, parceiro, banco, período, ano ou schemas/filtros não fornecidos. `UNKNOWN` corresponde à falta de informação factual necessária, não à mera necessidade de gerar conteúdo novo. Por exemplo, converter “12 de dezembro” para uma data completa exige que o ano esteja determinado pelo contexto fornecido, não pela suposição do modelo. Testes com modelo determinístico verificam transporte e instruções, não garantem adesão linguística do modelo real.
+
+`POST /v1/flow-assist` é uma execução curta e **stateless**, separada de `/v1/agent-turns` e do FlowAgent agentic. O Core monta a conversa cronológica e seleciona as linhas elegíveis; o `flow-assist-agent` interpreta somente esse snapshot, sem Session, tools, MCP, Navigation, Knowledge ou handoffs.
+
+Contrato de entrada (IDs numéricos inteiros positivos):
+
+```json
+{
+  "Agent": "flow-assist-agent",
+  "IdCompany": 1003,
+  "IdChat": 123,
+  "IdProcessLine": 456,
+  "IdProcessLineFlow": 789,
+  "Instructions": "Utilize somente informações conhecidas com segurança.",
+  "Messages": [
+    { "IdMessage": 1001, "Role": "USER", "Text": "Pode mandar pela Jadlog." }
+  ],
+  "Targets": [
+    {
+      "IdProcessLineFlow": 81231,
+      "Step": 11,
+      "ObjectType": "CFL",
+      "Description": "Transportadora",
+      "ObjectDescription": "Identifique a transportadora mencionada pelo usuário."
+    },
+    {
+      "IdProcessLineFlow": 81232,
+      "Step": 12,
+      "ObjectType": "PROMPT",
+      "Description": "Data de entrega",
+      "ObjectDescription": "Retorne a data no formato AAAA-MM-DD."
+    }
+  ],
+  "Known": [
+    { "IdProcessLineFlow": 81230, "Step": 10, "Description": "Cliente", "Value": "Café do Mercado" }
+  ]
+}
+```
+
+`Instructions` pode ser vazia. `Messages` admite `USER`/`ASSISTANT` e preserva a ordem recebida. `Targets` suporta somente `PROMPT`, `CFL`, `CFL_SELREQ`; `Step` é inteiro não negativo, `ObjectDescription` é opcional/string/null e `Known` é opcional. Snapshots vazios são permitidos (sem evidência, usar UNKNOWN; sem Targets, retornar Proposals vazio). IDs duplicados de mensagens/Targets/Known e campos estranhos ao manifesto são rejeitados. Não enviar Query, SQL, DestinationTable, DestinationField, CFL.Key/Search ou configuração de Session/Knowledge.
+
+Sucesso HTTP 200:
+
+```json
+{
+  "Success": true,
+  "ExecutionUUID": "14ed24ea-0000-4000-8000-000000000001",
+  "Proposals": [
+    { "IdProcessLineFlow": 81231, "Status": "PROPOSED", "Value": "Jadlog" },
+    { "IdProcessLineFlow": 81232, "Status": "UNKNOWN", "Value": null }
+  ]
+}
+```
+
+O schema de transporte é fixo: `PROPOSED` exige string não vazia (`Value.trim().length > 0`), `UNKNOWN` exige null. String vazia ou somente espaços resulta em `INVALID_AGENT_OUTPUT` antes de persistir sucesso, inclusive quando rejeitada pelo `outputType` no SDK. O trim é usado somente na validação; o valor original não é modificado. Há exatamente uma proposta por Target: IDs desconhecidos, duplicados ou omitidos tornam a execução inválida, sem corrigir/preencher silenciosamente o output. O Runtime não normaliza nem valida valores de negócio. `Description` informa a necessidade da etapa, `ObjectDescription` orienta semanticamente o texto proposto; nenhuma regra específica de datas ou maiúsculas é implementada no Runtime. Instruções fornecidas não substituem as invariantes do Agent. CFL recebe texto semântico, nunca uma chave técnica escolhida pela IA.
+
+Falha:
+
+```json
+{
+  "Success": false,
+  "ExecutionUUID": "14ed24ea-0000-4000-8000-000000000002",
+  "Proposals": [],
+  "Error": { "Code": "INVALID_AGENT_OUTPUT", "Message": "Não foi possível concluir o Agent Assist." }
+}
+```
+
+Payload inválido retorna 400/INVALID_REQUEST antes da execução, sem ExecutionUUID; Agent não registrado para Assist retorna 422/AGENT_NOT_FOUND; erros de inferência/output/persistência retornam 500. Nunca são retornadas propostas parciais em falha. O Core continua responsável pelo **fail-open**: registrar a falha assistiva e continuar o Flow determinístico. PROPOSED não significa que a linha foi resolvida: somente os resolvers canônicos do Core validam e persistem PROMPT/CFL e decidem seu estado. O Runtime não atualiza ProcessLineFlow, não avança Step nem envia mensagem ao cliente.
+
+Cada chamada gera ExecutionUUID/OpenAITraceId e registra `AIAgentExecution` + timeline, inclusive falhas, usando o repository/ExecutionLogger existente. `IdProcessLineFlow` identifica a linha **AGENTASSIST**, não um Target; `RuntimeConfigJSON.Mode=FLOW_ASSIST`. Não há Session, TurnUUID, snapshot de Knowledge ou migration nova. Reexecuções são inferências independentes; a recuperação por exclusão das linhas já resolvidas pertence ao Core.
+
+Testes: `flowAssistContracts`, `flowAssistAgent`, `flowAssistRuntime` e integração `flowAssist` percorrem HTTP → controller → Runtime → Agent → Runner real com modelo determinístico, sem serviços externos. O modelo fake comprova transporte/schema/fronteiras, não a interpretação linguística. Dois testes semânticos live opcionais (cliente/transportadora/data/UNKNOWN e maiúsculas) exigem `RUN_OPENAI_INTEGRATION_TESTS=1`, `OPENAI_MODEL` e `OPENAI_API_KEY`, executados com `npm test -- tests/integration/flowAssist.test.ts`. O E2E de pré-resolução, skip canônico e fail-open do DocumentService exige o Core e não é simulado como implementação deste repositório.
+
+### Fluxos existentes
+
 - `AgentRegistry` monta agents por execução; `ExpectedOutput` não fica preso em singleton.
 - Root Agents usam as capabilities locais `use_flow_capabilities` e `use_navigation`; somente `FlowAgent` recebe MCP Flow e somente `NavigationAgent` recebe MCP Navigation.
 - `ReceptionAgent` usa `use_navigation` para destinos/Handoff e não recebe Flow. Knowledge V1 é opcional para todos os Root Agents: o Core envia `KnowledgeConfiguration`, congelada por Session, e o Runtime oferece a tool local `search_knowledge` apenas quando há referências autorizadas. A busca usa diretamente OpenAI Vector Store Search, sem MCP ou `file_search` bruto.

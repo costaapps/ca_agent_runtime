@@ -144,14 +144,15 @@ export class AgentRuntime {
   private readonly knowledgeSearchService: KnowledgeSearchService;
 
   constructor(private readonly options: AgentRuntimeOptions) {
-    this.flowAssistRuntime = new FlowAssistRuntime({
-      repository: options.repository, registry: options.registry, runner: options.runner,
-      model: options.model, tracingEnabled: options.tracingEnabled, traceIncludeSensitiveData: options.traceIncludeSensitiveData,
-    });
-    this.sessionMutex = options.sessionMutex ?? new SessionMutex();
     this.knowledgeSearchService = options.knowledgeSearchService ?? new KnowledgeSearchService(
       new OpenAIKnowledgeSearchProvider(), new EnvironmentProviderCredentialResolver(),
     );
+    this.flowAssistRuntime = new FlowAssistRuntime({
+      repository: options.repository, registry: options.registry, runner: options.runner,
+      model: options.model, tracingEnabled: options.tracingEnabled, traceIncludeSensitiveData: options.traceIncludeSensitiveData,
+      knowledgeSearchService: this.knowledgeSearchService,
+    });
+    this.sessionMutex = options.sessionMutex ?? new SessionMutex();
   }
 
   runFlowAssist(input: FlowAssistInput): Promise<FlowAssistRuntimeResult> {

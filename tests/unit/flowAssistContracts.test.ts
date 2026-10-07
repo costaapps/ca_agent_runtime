@@ -1,16 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { FlowAssistInputSchema } from '../../src/api/contracts/flowAssistInput.js';
-import { FlowAssistAgentOutputSchema, FlowAssistOutputSchema } from '../../src/api/contracts/flowAssistOutput.js';
-import { validateFlowAssistProposals } from '../../src/runtime/FlowAssistRuntime.js';
-import { flowAssistInput, flowAssistOutput } from '../helpers/flowAssist.js';
+import { FlowAssistAgentOutputSchema, FlowAssistCheckAgentOutputSchema, FlowAssistOutputSchema } from '../../src/api/contracts/flowAssistOutput.js';
+import { validateFlowAssistProposals, validateFlowAssistResults } from '../../src/runtime/FlowAssistRuntime.js';
+import { KnowledgeConfigurationSchema } from '../../src/api/contracts/knowledgeConfiguration.js';
+import { flowAssistCheckInput, flowAssistCheckOutput, flowAssistInput, flowAssistOutput } from '../helpers/flowAssist.js';
+import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
 
 describe('Flow Assist HTTP and structured output contracts', () => {
+  const authorized = KnowledgeConfigurationSchema.parse(configuredKnowledge);
+
   it('accepts the Core snapshot, all V1 object types, empty instructions and optional Known/ObjectDescription', () => {
     expect(FlowAssistInputSchema.parse(flowAssistInput)).toEqual(flowAssistInput);
     const { Known: _known, ...withoutKnown } = flowAssistInput;
     expect(FlowAssistInputSchema.parse({ ...withoutKnown, Instructions: '', Targets: [{ IdProcessLineFlow: 1, Step: 0, ObjectType: 'PROMPT', Description: '' }] }).Known).toBeUndefined();
     expect(FlowAssistInputSchema.parse({ ...flowAssistInput, Messages: [], Targets: [] }).Targets).toEqual([]);
+  });
+
+  it('accepts authorized Knowledge in legacy and explicit PREFILL while keeping the original payload valid', () => {
+    const input = { ...flowAssistInput, Instructions: 'Consulte {{knowledge:base:commercial}}.', KnowledgeConfiguration: authorized };
+    expect(FlowAssistInputSchema.parse(input)).toEqual(input);
+    expect(FlowAssistInputSchema.parse({ ...input, Mode: 'PREFILL' })).toMatchObject({ Mode: 'PREFILL', KnowledgeConfiguration: authorized });
+    expect(FlowAssistInputSchema.parse(flowAssistInput)).toEqual(flowAssistInput);
+    expect(FlowAssistInputSchema.safeParse({ ...flowAssistInput, Instructions: '', KnowledgeConfiguration: { Version: 1, Connections: [], References: [] } }).success).toBe(true);
+  });
+
+  it.each([
+    { Instructions: 'Consulte {{knowledge:base:commercial}}.', KnowledgeConfiguration: undefined },
+    { Instructions: 'Consulte {{knowledge:base:foreign}}.', KnowledgeConfiguration: authorized },
+    { Instructions: 'Consulte {{knowledge:base:commercial', KnowledgeConfiguration: authorized },
+  ])('rejects unauthorized or malformed Knowledge in PREFILL: %j', (overrides) => {
+    expect(FlowAssistInputSchema.safeParse({ ...flowAssistInput, ...overrides }).success).toBe(false);
   });
 
   it.each(['IdCompany', 'IdChat', 'IdProcessLine', 'IdProcessLineFlow'])('rejects invalid %s', (field) => {
@@ -81,5 +101,77 @@ describe('Flow Assist HTTP and structured output contracts', () => {
     if (!parsed.success) expect(parsed.error.issues).toContainEqual(expect.objectContaining({ path: ['Proposals', 0, 'Value'] }));
     expect(() => validateFlowAssistProposals(output, flowAssistInput)).toThrow(expect.objectContaining({ code: 'INVALID_AGENT_OUTPUT' }));
     expect(FlowAssistOutputSchema.safeParse({ Success: true, ExecutionUUID: '14ed24ea-0000-4000-8000-000000000001', ...output }).success).toBe(false);
+  });
+});
+
+describe('Flow Assist CHECK contract', () => {
+  const authorized = KnowledgeConfigurationSchema.parse(configuredKnowledge);
+  const check = { ...flowAssistCheckInput, KnowledgeConfiguration: authorized };
+
+  it('accepts CHECK manifest and authorized Knowledge without changing legacy PREFILL', () => {
+    expect(FlowAssistInputSchema.parse(check)).toEqual(check);
+    expect(FlowAssistInputSchema.parse({ ...flowAssistInput, Mode: 'PREFILL' }).Mode).toBe('PREFILL');
+    expect(FlowAssistInputSchema.parse(flowAssistInput)).toEqual(flowAssistInput);
+    expect(FlowAssistInputSchema.safeParse({ ...flowAssistCheckInput, Instructions: '', KnowledgeConfiguration: { Version: 1, Connections: [], References: [] } }).success).toBe(true);
+    expect(FlowAssistInputSchema.safeParse({ ...flowAssistCheckInput, KnowledgeConfiguration: undefined }).success).toBe(false);
+  });
+
+  it.each([
+    { label: 'missing Mode', payload: { ...check, Mode: undefined } },
+    { label: 'missing state', payload: { ...check, Targets: [{ ...check.Targets[0], Resolved: undefined }] } },
+    { label: 'missing CurrentValue', payload: { ...check, Targets: [{ ...check.Targets[0], CurrentValue: undefined }] } },
+    { label: 'missing Repair', payload: { ...check, Check: { Repair: undefined } } },
+    { label: 'duplicate targets', payload: { ...check, Targets: [check.Targets[0], check.Targets[0]] } },
+    { label: 'technical target field', payload: { ...check, Targets: [{ ...check.Targets[0], Query: 'SQL' }] } },
+    { label: 'foreign company reference', payload: { ...check, KnowledgeConfiguration: { ...configuredKnowledge, References: [{ ...configuredKnowledge.References[0], Reference: 'base:other' }] } } },
+    { label: 'malformed Knowledge macro', payload: { ...check, Instructions: 'Use {{knowledge:base:commercial' } },
+  ])('rejects $label', ({ payload }) => {
+    expect(FlowAssistInputSchema.safeParse(payload).success).toBe(false);
+  });
+
+  it('compiles the distinct CHECK structured schema and accepts all five actions', () => {
+    const output = { Mode: 'CHECK', Results: [
+      { IdProcessLineFlow: 81231, Action: 'KEEP', Value: null, Reason: null },
+      { IdProcessLineFlow: 81232, Action: 'REPLACE', Value: 'Jadlog', Reason: null },
+      { IdProcessLineFlow: 81233, Action: 'SET', Value: 'Jadlog', Reason: null },
+    ] };
+    expect(validateFlowAssistResults(output, check)).toEqual(output);
+    const schema = z.toJSONSchema(FlowAssistCheckAgentOutputSchema);
+    expect(schema.type).toBe('object');
+    expect(JSON.stringify(schema)).toContain('REPLACE');
+    expect(JSON.stringify(schema)).not.toContain('PROPOSED');
+    for (const Action of ['MISSING', 'INVALID'] as const) {
+      const result = validateFlowAssistResults({ Mode: 'CHECK', Results: [{ IdProcessLineFlow: 81233, Action, Value: null, Reason: 'Informação insuficiente.' }] }, { ...check, Targets: [check.Targets[2]!] });
+      expect(result.Results[0]?.Action).toBe(Action);
+    }
+    expect(FlowAssistOutputSchema.safeParse({ Success: true, ExecutionUUID: '14ed24ea-0000-4000-8000-000000000001', ...output }).success).toBe(true);
+    expect(FlowAssistOutputSchema.safeParse({ Success: false, Mode: 'CHECK', Results: [], Error: { Code: 'INVALID_REQUEST', Message: 'Inválido.' } }).success).toBe(true);
+  });
+
+  it.each([
+    { label: 'KEEP unresolved', output: { ...flowAssistCheckOutput, Results: [{ IdProcessLineFlow: 81233, Action: 'KEEP', Value: null, Reason: null }] }, target: 2 },
+    { label: 'SET resolved', output: { ...flowAssistCheckOutput, Results: [{ IdProcessLineFlow: 81231, Action: 'SET', Value: 'X', Reason: null }] }, target: 0 },
+    { label: 'REPLACE unresolved', output: { ...flowAssistCheckOutput, Results: [{ IdProcessLineFlow: 81233, Action: 'REPLACE', Value: 'X', Reason: null }] }, target: 2 },
+    { label: 'foreign ID', output: { ...flowAssistCheckOutput, Results: [{ IdProcessLineFlow: 999, Action: 'MISSING', Value: null, Reason: null }] }, target: 0 },
+  ])('rejects $label', ({ output, target }) => {
+    expect(() => validateFlowAssistResults(output, { ...check, Targets: [check.Targets[target]!] })).toThrow(expect.objectContaining({ code: 'INVALID_AGENT_OUTPUT' }));
+  });
+
+  it.each([
+    { label: 'duplicate ID', Results: [flowAssistCheckOutput.Results[0], flowAssistCheckOutput.Results[0], flowAssistCheckOutput.Results[2]] },
+    { label: 'omitted ID', Results: flowAssistCheckOutput.Results.slice(1) },
+    { label: 'invented ID', Results: [flowAssistCheckOutput.Results[0], flowAssistCheckOutput.Results[1], { IdProcessLineFlow: 999, Action: 'MISSING', Value: null, Reason: null }] },
+    { label: 'SET empty value', Results: [flowAssistCheckOutput.Results[0], flowAssistCheckOutput.Results[1], { IdProcessLineFlow: 81233, Action: 'SET', Value: '  ', Reason: null }] },
+    { label: 'KEEP with value', Results: [{ IdProcessLineFlow: 81231, Action: 'KEEP', Value: 'x', Reason: null }, ...flowAssistCheckOutput.Results.slice(1)] },
+    { label: 'Reason on SET', Results: [flowAssistCheckOutput.Results[0], flowAssistCheckOutput.Results[1], { IdProcessLineFlow: 81233, Action: 'SET', Value: 'x', Reason: 'secret' }] },
+    { label: 'internal ID in Reason', Results: [flowAssistCheckOutput.Results[0], flowAssistCheckOutput.Results[1], { IdProcessLineFlow: 81233, Action: 'MISSING', Value: null, Reason: 'IdCompany 1003' }] },
+  ])('rejects $label', ({ Results }) => {
+    expect(() => validateFlowAssistResults({ Mode: 'CHECK', Results }, check)).toThrow(expect.objectContaining({ code: 'INVALID_AGENT_OUTPUT' }));
+  });
+
+  it.each(['SET', 'REPLACE'] as const)('rejects %s when Repair=false', (Action) => {
+    const target = Action === 'SET' ? check.Targets[2]! : check.Targets[1]!;
+    const output = { Mode: 'CHECK', Results: [{ IdProcessLineFlow: target.IdProcessLineFlow, Action, Value: 'correção', Reason: null }] };
+    expect(() => validateFlowAssistResults(output, { ...check, Check: { Repair: false }, Targets: [target] })).toThrow(expect.objectContaining({ code: 'INVALID_AGENT_OUTPUT' }));
   });
 });

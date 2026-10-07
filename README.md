@@ -108,11 +108,11 @@ Com referências autorizadas, qualquer Root Agent recebe a tool local `search_kn
 
 ## Arquitetura operacional
 
-### Agent Assist no Flow determinístico — V1
+### Agent Assist PREFILL no Flow determinístico — V1
 
 `Messages`/`Known` são a fonte exclusiva de fatos sobre a solicitação e o usuário. `Instructions`, `Description` e `ObjectDescription` definem a interpretação e transformação desses fatos. `Value` não precisa aparecer literalmente na conversa: pode ser sintetizado, formatado, convertido ou gerado, inclusive como SQL/SELECT/HTML textual, quando as regras fornecidas sustentarem sua construção. Gerar esse texto não autoriza executá-lo nem comprova resultados de consultas. Não inventar empresa, parceiro, banco, período, ano ou schemas/filtros não fornecidos. `UNKNOWN` corresponde à falta de informação factual necessária, não à mera necessidade de gerar conteúdo novo. Por exemplo, converter “12 de dezembro” para uma data completa exige que o ano esteja determinado pelo contexto fornecido, não pela suposição do modelo. Testes com modelo determinístico verificam transporte e instruções, não garantem adesão linguística do modelo real.
 
-`POST /v1/flow-assist` é uma execução curta e **stateless**, separada de `/v1/agent-turns` e do FlowAgent agentic. O Core monta a conversa cronológica e seleciona as linhas elegíveis; o `flow-assist-agent` interpreta somente esse snapshot, sem Session, tools, MCP, Navigation, Knowledge ou handoffs.
+`POST /v1/flow-assist` é uma execução curta e **stateless**, separada de `/v1/agent-turns` e do FlowAgent agentic. O Core monta a conversa cronológica e seleciona as linhas elegíveis; o `flow-assist-agent` interpreta somente esse snapshot. PREFILL e CHECK não usam Session, MCP, Navigation ou handoffs. Em ambos os modos, a única tool possível é `search_knowledge` quando o Core envia referências autorizadas; sem elas, `tools=[]`.
 
 Contrato de entrada (IDs numéricos inteiros positivos):
 
@@ -149,7 +149,7 @@ Contrato de entrada (IDs numéricos inteiros positivos):
 }
 ```
 
-`Instructions` pode ser vazia. `Messages` admite `USER`/`ASSISTANT` e preserva a ordem recebida. `Targets` suporta somente `PROMPT`, `CFL`, `CFL_SELREQ`; `Step` é inteiro não negativo, `ObjectDescription` é opcional/string/null e `Known` é opcional. Snapshots vazios são permitidos (sem evidência, usar UNKNOWN; sem Targets, retornar Proposals vazio). IDs duplicados de mensagens/Targets/Known e campos estranhos ao manifesto são rejeitados. Não enviar Query, SQL, DestinationTable, DestinationField, CFL.Key/Search ou configuração de Session/Knowledge.
+`Instructions` pode ser vazia. `Messages` admite `USER`/`ASSISTANT` e preserva a ordem recebida. `Targets` suporta somente `PROMPT`, `CFL`, `CFL_SELREQ`; `Step` é inteiro não negativo, `ObjectDescription` é opcional/string/null e `Known` é opcional. Snapshots vazios são permitidos (sem evidência, usar UNKNOWN; sem Targets, retornar Proposals vazio). IDs duplicados de mensagens/Targets/Known e campos estranhos ao manifesto são rejeitados. Não enviar Query, SQL, DestinationTable, DestinationField, CFL.Key/Search ou configuração de Session. `KnowledgeConfiguration` é opcional no PREFILL e no CHECK; macros em `Instructions` exigem a respectiva Reference autorizada no snapshot enviado pelo Core.
 
 Sucesso HTTP 200:
 
@@ -182,6 +182,42 @@ Payload inválido retorna 400/INVALID_REQUEST antes da execução, sem Execution
 Cada chamada gera ExecutionUUID/OpenAITraceId e registra `AIAgentExecution` + timeline, inclusive falhas, usando o repository/ExecutionLogger existente. `IdProcessLineFlow` identifica a linha **AGENTASSIST**, não um Target; `RuntimeConfigJSON.Mode=FLOW_ASSIST`. Não há Session, TurnUUID, snapshot de Knowledge ou migration nova. Reexecuções são inferências independentes; a recuperação por exclusão das linhas já resolvidas pertence ao Core.
 
 Testes: `flowAssistContracts`, `flowAssistAgent`, `flowAssistRuntime` e integração `flowAssist` percorrem HTTP → controller → Runtime → Agent → Runner real com modelo determinístico, sem serviços externos. O modelo fake comprova transporte/schema/fronteiras, não a interpretação linguística. Dois testes semânticos live opcionais (cliente/transportadora/data/UNKNOWN e maiúsculas) exigem `RUN_OPENAI_INTEGRATION_TESTS=1`, `OPENAI_MODEL` e `OPENAI_API_KEY`, executados com `npm test -- tests/integration/flowAssist.test.ts`. O E2E de pré-resolução, skip canônico e fail-open do DocumentService exige o Core e não é simulado como implementação deste repositório.
+
+### Agent Assist CHECK + Knowledge
+
+O mesmo endpoint aceita `Mode: "CHECK"`. O manifesto CHECK inclui `Targets[].Resolved` e `Targets[].CurrentValue` (string ou null), além de `Check.Repair`. `Check.RequireAll`, `OnRuntimeFailure` e `BlockMessage` podem vir no request para o Core coordenar o bloqueio e a reentrada; o Runtime não decide PASS/BLOCK, não avança Step e não aplica SET/REPLACE. O contrato PREFILL acima continua válido sem `Mode`; `Mode: "PREFILL"` explícito também é aceito.
+
+```json
+{
+  "Agent": "flow-assist-agent",
+  "IdCompany": 1003,
+  "IdChat": 123,
+  "IdProcessLine": 456,
+  "IdProcessLineFlow": 789,
+  "Mode": "CHECK",
+  "Instructions": "Valide conforme {{knowledge:base:commercial}}.",
+  "Messages": [{ "IdMessage": 1001, "Role": "USER", "Text": "Prefiro Jadlog." }],
+  "Targets": [{ "IdProcessLineFlow": 81231, "Step": 11, "ObjectType": "CFL", "Description": "Transportadora", "ObjectDescription": "Considere a política comercial.", "Resolved": true, "CurrentValue": "Transportadora anterior" }],
+  "Known": [],
+  "Check": { "Repair": true, "RequireAll": true, "OnRuntimeFailure": "BLOCK", "BlockMessage": "Preciso revisar os dados." },
+  "KnowledgeConfiguration": { "Version": 1, "Connections": [{ "Code": "openai-default", "Provider": "OPENAI", "CredentialSource": "RUNTIME_ENV", "CredentialReference": "OPENAI_API_KEY" }], "References": [{ "Reference": "base:commercial", "Kind": "BASE", "Name": "Política comercial", "ConnectionCode": "openai-default", "ExternalStoreId": "vs_authorized" }] }
+}
+```
+
+O Core resolve as macros e autoriza `KnowledgeConfiguration` por empresa em qualquer Mode. O Runtime rejeita macros não presentes no snapshot recebido e a tool recusa References ausentes desse snapshot. O Flow Assist recebe somente `search_knowledge` quando há References; sem elas, `tools=[]`. A pesquisa usa o `KnowledgeSearchService` já existente e registra `KNOWLEDGE_SEARCH`, inclusive `NO_RESULTS` e erros. Falha da pesquisa impede sucesso tanto no PREFILL quanto no CHECK; o Core mantém suas respectivas políticas de falha. Credenciais, IDs externos, filtros e opções de busca ficam fora dos argumentos do modelo. Knowledge recuperada é dado, não instrução de sistema. A configuração vale somente para a execução atual; nenhuma Session é criada.
+
+Sucesso CHECK:
+
+```json
+{
+  "Success": true,
+  "ExecutionUUID": "14ed24ea-0000-4000-8000-000000000003",
+  "Mode": "CHECK",
+  "Results": [{ "IdProcessLineFlow": 81231, "Action": "REPLACE", "Value": "Jadlog", "Reason": null }]
+}
+```
+
+`KEEP` exige Target resolvido; `SET` exige não resolvido; `REPLACE` exige resolvido. `SET`/`REPLACE` exigem `Repair=true` e Value textual não vazio. `KEEP`/`MISSING`/`INVALID` exigem `Value=null`; Reason é null quando não se aplica e pode trazer uma explicação operacional curta para MISSING/INVALID. Há exatamente um Result por Target, sem IDs omitidos, repetidos ou inventados. Em falha, o Runtime retorna `Success=false`, `Mode=CHECK`, `Results=[]` e `Error`; o Core decide sua política BLOCK/CONTINUE e os resolvers aplicam reparos. `AIAgentExecution.RuntimeConfigJSON.AssistMode=CHECK` registra o modo; não há migration nova. MCP, Navigation, handoffs, AUTO, replay e mensagens ao cliente permanecem fora deste Runtime.
 
 ### Fluxos existentes
 

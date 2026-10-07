@@ -9,7 +9,7 @@ import type { AIDocumentAgentBuildContext, AIDocumentAgentGraph } from './aidocu
 import { createSalesAgent } from './aidocument/roots/salesAgent.js';
 import { createSupportAgent } from './aidocument/roots/supportAgent.js';
 import { createReceptionAgent } from './aidocument/roots/receptionAgent.js';
-import { createFlowAssistAgent, type FlowAssistAgent } from './flow-assist/flowAssistAgent.js';
+import { createFlowAssistAgent, type FlowAssistAgent, type FlowAssistAgentBuildContext } from './flow-assist/flowAssistAgent.js';
 
 export type { AgentGraph } from './legacy/orchestrator.js';
 
@@ -29,7 +29,7 @@ export type AgentFactory = (context: AgentBuildContext) => AgentGraph;
 export class AgentRegistry {
   private readonly factories = new Map<string, AgentFactory>();
   private readonly aidocumentFactories = new Map<string, (context: AIDocumentAgentBuildContext) => AIDocumentAgentGraph>();
-  private readonly flowAssistFactories = new Map<string, (model: string) => FlowAssistAgent>([
+  private readonly flowAssistFactories = new Map<string, (context: FlowAssistAgentBuildContext) => FlowAssistAgent>([
     ['flow-assist-agent', createFlowAssistAgent],
   ]);
 
@@ -53,10 +53,10 @@ export class AgentRegistry {
     return this.flowAssistFactories.has(agentKey);
   }
 
-  buildFlowAssist(agentKey: string, model: string): FlowAssistAgent {
+  buildFlowAssist(agentKey: string, contextOrModel: FlowAssistAgentBuildContext | string): FlowAssistAgent {
     const factory = this.flowAssistFactories.get(agentKey);
     if (!factory) throw new AgentNotFoundError(agentKey);
-    return factory(model);
+    return factory(typeof contextOrModel === 'string' ? { model: contextOrModel } : contextOrModel);
   }
 
   build(agentKey: string, context: AgentBuildContext): AgentGraph {

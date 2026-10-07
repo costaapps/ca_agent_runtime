@@ -7,7 +7,9 @@ export function createFlowAssistController(runtime: Pick<FlowAssistRuntime, 'run
   return async function flowAssistController(request: Request, response: Response): Promise<void> {
     const parsed = FlowAssistInputSchema.safeParse(request.body);
     if (!parsed.success) {
-      response.status(400).json({ Success: false, Proposals: [], Error: { Code: ErrorCodes.InvalidRequest, Message: 'Payload inválido.' } });
+      response.status(400).json(request.body?.Mode === 'CHECK'
+        ? { Success: false, Mode: 'CHECK', Results: [], Error: { Code: ErrorCodes.InvalidRequest, Message: 'Payload inválido.' } }
+        : { Success: false, Proposals: [], Error: { Code: ErrorCodes.InvalidRequest, Message: 'Payload inválido.' } });
       return;
     }
     const result = await runtime.runFlowAssist(parsed.data);

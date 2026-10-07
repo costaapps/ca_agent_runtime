@@ -11,6 +11,12 @@ import { createFakeMcpServer } from '../../src/mcp/fakeMcpServer.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { MemorySessionRepository } from '../helpers/memorySessionRepository.js';
 import { flowAssistInput, flowAssistOutput } from '../helpers/flowAssist.js';
+import { flowAssistCheckInput } from '../helpers/flowAssist.js';
+import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
+import { KnowledgeConfigurationSchema } from '../../src/api/contracts/knowledgeConfiguration.js';
+import { KnowledgeSearchService } from '../../src/knowledge/KnowledgeSearchService.js';
+import { EnvironmentProviderCredentialResolver } from '../../src/knowledge/credentials/EnvironmentProviderCredentialResolver.js';
+import type { KnowledgeSearchProvider } from '../../src/knowledge/providers/KnowledgeSearchProvider.js';
 
 class AssistModel implements Model {
   requests: ModelRequest[] = [];
@@ -24,7 +30,7 @@ class AssistModel implements Model {
     expect(request.tools).toEqual([]);
     expect(request.handoffs).toEqual([]);
     expect(request.outputType).toMatchObject({ type: 'json_schema', strict: true, schema: { type: 'object', additionalProperties: false } });
-    expect(request.systemInstructions).toContain('ObjectDescription orienta');
+    expect(request.systemInstructions).toContain('ObjectDescription define');
     return {
       usage: new Usage({ requests: 1 }),
       output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: JSON.stringify(this.output) }] }],
@@ -34,7 +40,62 @@ class AssistModel implements Model {
   getStreamedResponse(): AsyncIterable<never> { throw new Error('stream não utilizado'); }
 }
 
-function setup(model = new AssistModel()) {
+class CheckKnowledgeModel implements Model {
+  requests: ModelRequest[] = [];
+  constructor(private readonly reference = 'base:commercial') {}
+
+  async getResponse(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    expect(request.handoffs).toEqual([]);
+    expect(request.tools.map((entry) => entry.name)).toEqual(['search_knowledge']);
+    expect(request.outputType).toMatchObject({ type: 'json_schema', strict: true });
+    const previous = (request.input as { type?: string; name?: string; output?: { text?: string } }[])
+      .find((item) => item.type === 'function_call_result' && item.name === 'search_knowledge');
+    const output = previous
+      ? [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: JSON.stringify({
+        Mode: 'CHECK', Results: [
+          { IdProcessLineFlow: 81231, Action: 'KEEP', Value: null, Reason: null },
+          { IdProcessLineFlow: 81232, Action: previous.output?.text?.includes('NO_RESULTS') ? 'INVALID' : 'REPLACE', Value: previous.output?.text?.includes('NO_RESULTS') ? null : 'Jadlog', Reason: previous.output?.text?.includes('NO_RESULTS') ? 'Política não encontrada.' : null },
+        ],
+      }) }] }]
+      : [{ type: 'function_call', name: 'search_knowledge', callId: 'check-search-1', arguments: JSON.stringify({ Reference: this.reference, Query: 'Transportadora permitida?' }) }];
+    return { usage: new Usage({ requests: 1 }), output: output as ModelResponse['output'] };
+  }
+  getStreamedResponse(): AsyncIterable<never> { throw new Error('stream não utilizado'); }
+}
+
+class PrefillKnowledgeModel implements Model {
+  requests: ModelRequest[] = [];
+  async getResponse(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    expect(request.tools.map((entry) => entry.name)).toEqual(['search_knowledge']);
+    expect(request.handoffs).toEqual([]);
+    expect(request.outputType).toMatchObject({ type: 'json_schema', strict: true });
+    expect(request.systemInstructions).toContain('somente search_knowledge');
+    const previous = (request.input as { type?: string; name?: string; output?: { text?: string } }[])
+      .find((item) => item.type === 'function_call_result' && item.name === 'search_knowledge');
+    const result = previous ? JSON.parse(previous.output!.text!) as { Status: string; Results: { Content: string }[] } : undefined;
+    const output = result
+      ? [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: JSON.stringify({ Proposals: [{ IdProcessLineFlow: 81231, Status: result.Status === 'FOUND' ? 'PROPOSED' : 'UNKNOWN', Value: result.Status === 'FOUND' ? 'Jadlog' : null }] }) }] }]
+      : [{ type: 'function_call', name: 'search_knowledge', callId: 'prefill-search-1', arguments: JSON.stringify({ Reference: 'base:commercial', Query: 'Transportadora permitida?' }) }];
+    return { usage: new Usage({ requests: 1 }), output: output as ModelResponse['output'] };
+  }
+  getStreamedResponse(): AsyncIterable<never> { throw new Error('stream não utilizado'); }
+}
+
+class CheckWithoutKnowledgeModel implements Model {
+  requests: ModelRequest[] = [];
+  async getResponse(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    expect(request.tools).toEqual([]);
+    expect(request.handoffs).toEqual([]);
+    expect(request.outputType).toMatchObject({ type: 'json_schema', strict: true });
+    return { usage: new Usage({ requests: 1 }), output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: JSON.stringify({ Mode: 'CHECK', Results: [{ IdProcessLineFlow: 81231, Action: 'KEEP', Value: null, Reason: null }] }) }] }] };
+  }
+  getStreamedResponse(): AsyncIterable<never> { throw new Error('stream não utilizado'); }
+}
+
+function setup(model: Model & { requests: ModelRequest[] } = new AssistModel(), knowledgeSearchService?: KnowledgeSearchService) {
   const repository = new MemoryRepository();
   const sessions = new MemorySessionRepository(repository);
   const createSession = vi.spyOn(sessions, 'createSession');
@@ -51,7 +112,7 @@ function setup(model = new AssistModel()) {
     // the provider in the test clone, keeping the real instructions/schema.
     return new Runner({ model, tracingDisabled: true }).run(agent.clone({ model }), input, { context });
   });
-  const runtime = new AgentRuntime({ repository, sessionRepository: sessions, registry: new AgentRegistry(), runner: { run }, mcpServer: mcp, observability: new McpObservabilityRegistry(), model: 'test-model', tracingEnabled: false, traceIncludeSensitiveData: false });
+  const runtime = new AgentRuntime({ repository, sessionRepository: sessions, registry: new AgentRegistry(), runner: { run }, mcpServer: mcp, observability: new McpObservabilityRegistry(), model: 'test-model', tracingEnabled: false, traceIncludeSensitiveData: false, knowledgeSearchService });
   return { model, repository, sessions, createSession, findSession, listTools, callTool, run, runtime };
 }
 
@@ -197,6 +258,161 @@ describe('HTTP -> controller -> runtime -> tool-free Agent with real SDK Runner'
     expect(finish).not.toHaveBeenCalled();
     expect(state.repository.executions[0]?.final).toMatchObject({ Success: 'N', ErrorCode: 'INVALID_AGENT_OUTPUT' });
     expect(state.repository.logs.some(({ data }) => data.EventType === 'AGENT_OUTPUT')).toBe(false);
+  });
+});
+
+describe('CHECK + native Knowledge through HTTP and the real SDK Runner', () => {
+  const configuration = KnowledgeConfigurationSchema.parse(configuredKnowledge);
+  const checkInput = { ...flowAssistCheckInput, KnowledgeConfiguration: configuration, Targets: flowAssistCheckInput.Targets.slice(0, 2) };
+  const knowledgeService = (search: KnowledgeSearchProvider['search']) => new KnowledgeSearchService({ search }, new EnvironmentProviderCredentialResolver({ OPENAI_API_KEY: 'test-key' }));
+
+  it('calls authorized search_knowledge and returns KEEP/REPLACE without MCP or Session', async () => {
+    const search = vi.fn().mockResolvedValue([{ SourceName: 'politica.pdf', Content: 'Jadlog é permitida.' }]);
+    const state = setup(new CheckKnowledgeModel(), knowledgeService(search));
+    await withServer(state.runtime, async (post) => {
+      const response = await post(checkInput);
+      expect(response.status, JSON.stringify(state.repository.executions[0]?.final)).toBe(200);
+      expect(FlowAssistOutputSchema.parse(await response.json())).toMatchObject({ Success: true, Mode: 'CHECK', Results: [
+        { Action: 'KEEP', Value: null }, { Action: 'REPLACE', Value: 'Jadlog' },
+      ] });
+    });
+    expect(search).toHaveBeenCalledOnce();
+    expect(state.model.requests).toHaveLength(2);
+    expect(state.model.requests[0]?.input).toEqual(flowAssistInputItems(checkInput));
+    const toolResult = (state.model.requests[1]?.input as { type?: string; name?: string; output?: { text?: string } }[])
+      .find((item) => item.type === 'function_call_result' && item.name === 'search_knowledge');
+    expect(JSON.parse(toolResult!.output!.text!)).toMatchObject({ Status: 'FOUND', Results: [{ Content: 'Jadlog é permitida.' }] });
+    expect(JSON.stringify(toolResult)).not.toMatch(/test-key|vs_secret|file_secret/);
+    expect(state.repository.logs.map((entry) => entry.data.EventType)).toContain('KNOWLEDGE_SEARCH');
+    expect(state.repository.executions[0]?.final).toMatchObject({ Success: 'Y' });
+    expect(JSON.parse(state.repository.executions[0]!.data.RuntimeConfigJSON!)).toMatchObject({ Mode: 'FLOW_ASSIST', AssistMode: 'CHECK' });
+    expect(state.sessions.sessions).toEqual([]);
+    expect(state.createSession).not.toHaveBeenCalled();
+    expect(state.findSession).not.toHaveBeenCalled();
+    expect(state.callTool).not.toHaveBeenCalled();
+    expect(state.listTools).not.toHaveBeenCalled();
+  });
+
+  it('runs CHECK without Knowledge references with no tools and no Session', async () => {
+    const state = setup(new CheckWithoutKnowledgeModel());
+    await withServer(state.runtime, async (post) => {
+      const response = await post({ ...flowAssistCheckInput, Instructions: '', Targets: [flowAssistCheckInput.Targets[0]], KnowledgeConfiguration: { Version: 1, Connections: [], References: [] } });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ Success: true, Mode: 'CHECK', Results: [{ Action: 'KEEP' }] });
+    });
+    expect(state.model.requests).toHaveLength(1);
+    expect(state.sessions.sessions).toEqual([]);
+    expect(state.callTool).not.toHaveBeenCalled();
+  });
+
+  it('searches an authorized document using its configured filter', async () => {
+    const search = vi.fn().mockResolvedValue([{ SourceName: 'refund-policy.pdf', Content: 'Jadlog é permitida.' }]);
+    const state = setup(new CheckKnowledgeModel('document:commercial/refund-policy'), knowledgeService(search));
+    await withServer(state.runtime, async (post) => {
+      const response = await post({ ...checkInput, Instructions: 'Confira conforme {{knowledge:document:commercial/refund-policy}}.' });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ Success: true, Mode: 'CHECK' });
+    });
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ filter: { type: 'eq', key: 'ca_document_code', value: 'refund-policy' } }));
+    expect(state.callTool).not.toHaveBeenCalled();
+  });
+
+  it('does not invent a compliant value from NO_RESULTS', async () => {
+    const state = setup(new CheckKnowledgeModel(), knowledgeService(vi.fn().mockResolvedValue([])));
+    await withServer(state.runtime, async (post) => {
+      const response = await post(checkInput);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ Success: true, Mode: 'CHECK', Results: [{ Action: 'KEEP' }, { Action: 'INVALID', Value: null }] });
+    });
+    expect(state.repository.logs.find((entry) => entry.data.EventType === 'KNOWLEDGE_SEARCH')?.data.Status).toBe('NO_RESULTS');
+  });
+
+  it('fails the execution on provider errors without returning fabricated results', async () => {
+    const state = setup(new CheckKnowledgeModel(), knowledgeService(vi.fn().mockRejectedValue(new Error('provider secret'))));
+    await withServer(state.runtime, async (post) => {
+      const response = await post(checkInput);
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({ Success: false, Mode: 'CHECK', Results: [] });
+    });
+    expect(state.repository.executions[0]?.final).toMatchObject({ Success: 'N' });
+    expect(state.repository.logs.find((entry) => entry.data.EventType === 'KNOWLEDGE_SEARCH')?.data.Status).toBe('ERROR');
+  });
+
+  it('rejects an unauthorized Knowledge macro before persistence', async () => {
+    const state = setup(new CheckKnowledgeModel(), knowledgeService(vi.fn()));
+    await withServer(state.runtime, async (post) => {
+      const response = await post({ ...checkInput, Instructions: 'Use {{knowledge:base:foreign}}.' });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ Success: false, Mode: 'CHECK', Results: [], Error: { Code: 'INVALID_REQUEST' } });
+    });
+    expect(state.repository.executions).toEqual([]);
+    expect(state.run).not.toHaveBeenCalled();
+  });
+
+  it('rejects a model call to a Reference absent from the authorized snapshot', async () => {
+    const search = vi.fn();
+    const state = setup(new CheckKnowledgeModel('base:foreign'), knowledgeService(search));
+    await withServer(state.runtime, async (post) => {
+      const response = await post(checkInput);
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({ Success: false, Mode: 'CHECK', Results: [] });
+    });
+    expect(search).not.toHaveBeenCalled();
+    expect(state.repository.executions[0]?.final).toMatchObject({ Success: 'N' });
+  });
+});
+
+describe('PREFILL + native Knowledge through HTTP and the real SDK Runner', () => {
+  const configuration = KnowledgeConfigurationSchema.parse(configuredKnowledge);
+  const input = { ...flowAssistInput, Instructions: 'Identifique a transportadora conforme {{knowledge:base:commercial}}.', Targets: [flowAssistInput.Targets[0]!], KnowledgeConfiguration: configuration };
+  const knowledgeService = (search: KnowledgeSearchProvider['search']) => new KnowledgeSearchService({ search }, new EnvironmentProviderCredentialResolver({ OPENAI_API_KEY: 'test-key' }));
+
+  it.each([undefined, 'PREFILL' as const])('accepts Mode=%s, searches Knowledge, and preserves the PREFILL response', async (Mode) => {
+    const search = vi.fn().mockResolvedValue([{ SourceName: 'politica.pdf', Content: 'Jadlog é permitida.' }]);
+    const state = setup(new PrefillKnowledgeModel(), knowledgeService(search));
+    await withServer(state.runtime, async (post) => {
+      const response = await post({ ...input, ...(Mode ? { Mode } : {}) });
+      expect(response.status, JSON.stringify(state.repository.executions[0]?.final)).toBe(200);
+      expect(FlowAssistOutputSchema.parse(await response.json())).toMatchObject({ Success: true, Proposals: [{ Status: 'PROPOSED', Value: 'Jadlog' }] });
+    });
+    expect(search).toHaveBeenCalledOnce();
+    expect(state.model.requests).toHaveLength(2);
+    expect(JSON.stringify(state.model.requests[0]?.input)).not.toMatch(/vs_secret|file_secret|test-key/);
+    expect(state.repository.logs.find((entry) => entry.data.EventType === 'KNOWLEDGE_SEARCH')?.data.Status).toBe('FOUND');
+    expect(state.sessions.sessions).toEqual([]);
+    expect(state.callTool).not.toHaveBeenCalled();
+    expect(state.listTools).not.toHaveBeenCalled();
+  });
+
+  it('returns UNKNOWN after NO_RESULTS without fabricating a proposal', async () => {
+    const state = setup(new PrefillKnowledgeModel(), knowledgeService(vi.fn().mockResolvedValue([])));
+    await withServer(state.runtime, async (post) => {
+      const response = await post(input);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ Success: true, Proposals: [{ Status: 'UNKNOWN', Value: null }] });
+    });
+    expect(state.repository.logs.find((entry) => entry.data.EventType === 'KNOWLEDGE_SEARCH')?.data.Status).toBe('NO_RESULTS');
+  });
+
+  it('rejects a PREFILL macro absent from KnowledgeConfiguration before execution', async () => {
+    const state = setup(new PrefillKnowledgeModel(), knowledgeService(vi.fn()));
+    await withServer(state.runtime, async (post) => {
+      const response = await post({ ...input, Instructions: 'Consulte {{knowledge:base:foreign}}.' });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ Success: false, Proposals: [], Error: { Code: 'INVALID_REQUEST' } });
+    });
+    expect(state.repository.executions).toEqual([]);
+    expect(state.run).not.toHaveBeenCalled();
+  });
+
+  it('does not report successful PREFILL when Knowledge provider fails', async () => {
+    const state = setup(new PrefillKnowledgeModel(), knowledgeService(vi.fn().mockRejectedValue(new Error('provider unavailable'))));
+    await withServer(state.runtime, async (post) => {
+      const response = await post(input);
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({ Success: false, Proposals: [] });
+    });
+    expect(state.repository.executions[0]?.final).toMatchObject({ Success: 'N' });
   });
 });
 

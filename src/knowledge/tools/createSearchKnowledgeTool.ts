@@ -17,10 +17,11 @@ export function createSearchKnowledgeTool(
   runtimeContext: RuntimeContextData,
   logger?: ExecutionLogger,
   agentName?: string,
+  onError?: () => void,
 ) {
   return tool<typeof SearchKnowledgeArgumentsSchema, RuntimeContextData>({
     name: 'search_knowledge',
-    description: 'Pesquisa uma Knowledge Reference autorizada nesta Session. Forneça somente Reference e Query; IDs técnicos e opções são resolvidos pelo Runtime.',
+    description: 'Pesquisa uma Knowledge Reference autorizada nesta execução. Forneça somente Reference e Query; IDs técnicos e opções são resolvidos pelo Runtime.',
     parameters: SearchKnowledgeArgumentsSchema,
     execute: async ({ Reference, Query }) => {
       const startedAt = Date.now();
@@ -37,6 +38,9 @@ export function createSearchKnowledgeTool(
         provider = searched.provider;
         connectionCode = searched.connectionCode;
         return JSON.stringify(searched.result);
+      } catch (error) {
+        onError?.();
+        throw error;
       } finally {
         await logger?.append(ExecutionEventTypes.KnowledgeSearch, {
           AgentName: agentName,

@@ -1,8 +1,9 @@
-import type { FlowAssistInput } from '../../src/api/contracts/flowAssistInput.js';
+import type { FlowAssistCheckInput, FlowAssistPrefillInput } from '../../src/api/contracts/flowAssistInput.js';
+import type { FlowAssistCheckAgentOutput } from '../../src/api/contracts/flowAssistOutput.js';
 import type { FlowAssistAgentOutput } from '../../src/api/contracts/flowAssistOutput.js';
 
 // Core -> Runtime semantic manifest. No database/query/resolver configuration.
-export const flowAssistInput: FlowAssistInput = {
+export const flowAssistInput: FlowAssistPrefillInput = {
   Agent: 'flow-assist-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789,
   Instructions: 'Utilize somente informações identificadas com segurança na conversa.',
   Messages: [
@@ -25,5 +26,26 @@ export const flowAssistOutput: FlowAssistAgentOutput = {
     { IdProcessLineFlow: 81232, Status: 'PROPOSED', Value: 'Jadlog' },
     { IdProcessLineFlow: 81233, Status: 'PROPOSED', Value: '2026-12-12' },
     { IdProcessLineFlow: 81234, Status: 'UNKNOWN', Value: null },
+  ],
+};
+
+export const flowAssistCheckInput: FlowAssistCheckInput = {
+  ...flowAssistInput,
+  Mode: 'CHECK',
+  Instructions: 'Confira os valores; para transportadora consulte {{knowledge:base:commercial}}.',
+  Check: { Repair: true, RequireAll: true, OnRuntimeFailure: 'BLOCK', BlockMessage: 'Preciso revisar os dados.' },
+  Targets: [
+    { IdProcessLineFlow: 81231, Step: 11, ObjectType: 'PROMPT', Description: 'Cliente', ObjectDescription: 'Confirme o cliente.', Resolved: true, CurrentValue: 'Café do Mercado' },
+    { IdProcessLineFlow: 81232, Step: 12, ObjectType: 'CFL', Description: 'Transportadora', ObjectDescription: 'Conforme política comercial.', Resolved: true, CurrentValue: 'Transportadora incorreta' },
+    { IdProcessLineFlow: 81233, Step: 13, ObjectType: 'CFL_SELREQ', Description: 'Nova transportadora', ObjectDescription: 'Identifique a opção mencionada.', Resolved: false, CurrentValue: null },
+  ],
+};
+
+export const flowAssistCheckOutput: FlowAssistCheckAgentOutput = {
+  Mode: 'CHECK',
+  Results: [
+    { IdProcessLineFlow: 81231, Action: 'KEEP', Value: null, Reason: null },
+    { IdProcessLineFlow: 81232, Action: 'REPLACE', Value: 'Jadlog', Reason: null },
+    { IdProcessLineFlow: 81233, Action: 'SET', Value: 'Jadlog', Reason: null },
   ],
 };

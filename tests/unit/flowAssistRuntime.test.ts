@@ -5,12 +5,15 @@ import { AgentRegistry } from '../../src/agents/AgentRegistry.js';
 import { FlowAssistRuntime } from '../../src/runtime/FlowAssistRuntime.js';
 import { RuntimeError } from '../../src/errors/RuntimeError.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
-import { flowAssistInput, flowAssistOutput } from '../helpers/flowAssist.js';
+import { KnowledgeSearchService } from '../../src/knowledge/KnowledgeSearchService.js';
+import { EnvironmentProviderCredentialResolver } from '../../src/knowledge/credentials/EnvironmentProviderCredentialResolver.js';
+import { flowAssistCheckInput, flowAssistCheckOutput, flowAssistInput, flowAssistOutput } from '../helpers/flowAssist.js';
 
 function setup() {
   const repository = new MemoryRepository();
-  const run = vi.fn(async (..._args: Parameters<import('../../src/openai/runner.js').OpenAIRunner['run']>) => ({ finalOutput: flowAssistOutput }));
-  const runtime = new FlowAssistRuntime({ repository, registry: new AgentRegistry(), runner: { run }, model: 'test-model', tracingEnabled: true, traceIncludeSensitiveData: false });
+  const run = vi.fn(async (..._args: Parameters<import('../../src/openai/runner.js').OpenAIRunner['run']>) => ({ finalOutput: flowAssistOutput as unknown }));
+  const runtime = new FlowAssistRuntime({ repository, registry: new AgentRegistry(), runner: { run }, model: 'test-model', tracingEnabled: true, traceIncludeSensitiveData: false,
+    knowledgeSearchService: new KnowledgeSearchService({ search: vi.fn().mockResolvedValue([]) }, new EnvironmentProviderCredentialResolver({ OPENAI_API_KEY: 'test-key' })) });
   return { runtime, repository, run };
 }
 
@@ -107,5 +110,58 @@ describe('Flow Assist execution lifecycle', () => {
     vi.spyOn(repository, 'failExecution').mockRejectedValue(new Error('db error'));
     expect(await runtime.runFlowAssist(flowAssistInput)).toMatchObject({ statusCode: 500, response: { Success: false, Proposals: [] } });
     expect(repository.logs.some(({ data }) => data.EventType === 'RUNTIME_ERROR')).toBe(true);
+  });
+
+  it('persists CHECK result and AssistMode without a Session', async () => {
+    const { runtime, repository, run } = setup();
+    run.mockResolvedValueOnce({ finalOutput: flowAssistCheckOutput });
+    const result = await runtime.runFlowAssist({ ...flowAssistCheckInput, Instructions: '' });
+    expect(result).toMatchObject({ statusCode: 200, response: { Success: true, ...flowAssistCheckOutput } });
+    const execution = repository.executions[0]!;
+    expect(JSON.parse(execution.data.RuntimeConfigJSON!)).toMatchObject({ Mode: 'FLOW_ASSIST', AssistMode: 'CHECK' });
+    expect(execution.data.IdAIAgentSession).toBeUndefined();
+    expect(execution.final).toMatchObject({ Success: 'Y', OutputJSON: JSON.stringify(flowAssistCheckOutput) });
+    expect(run.mock.calls[0]).toHaveLength(4);
+    expect(repository.logs.map((entry) => entry.data.EventType)).toEqual(['RUNTIME_START', 'AGENT_START', 'AGENT_OUTPUT', 'RUNTIME_END']);
+  });
+
+  it('does not persist success for a CHECK action violating state or Repair', async () => {
+    const { runtime, repository, run } = setup();
+    run.mockResolvedValueOnce({ finalOutput: flowAssistCheckOutput });
+    const result = await runtime.runFlowAssist({ ...flowAssistCheckInput, Instructions: '', Check: { Repair: false } });
+    expect(result).toMatchObject({ statusCode: 500, response: { Success: false, Mode: 'CHECK', Results: [], Error: { Code: 'INVALID_AGENT_OUTPUT' } } });
+    expect(repository.executions[0]?.final).toMatchObject({ Success: 'N', ErrorCode: 'INVALID_AGENT_OUTPUT' });
+    expect(repository.logs.some((entry) => entry.data.EventType === 'AGENT_OUTPUT')).toBe(false);
+  });
+
+  it('keeps CHECK provider errors as failures instead of MISSING or PREFILL UNKNOWN', async () => {
+    const { runtime, repository, run } = setup();
+    run.mockRejectedValueOnce(new Error('KNOWLEDGE_PROVIDER_ERROR'));
+    const result = await runtime.runFlowAssist({ ...flowAssistCheckInput, Instructions: '' });
+    expect(result).toMatchObject({ statusCode: 500, response: { Success: false, Mode: 'CHECK', Results: [], Error: { Code: 'AGENT_EXECUTION_ERROR' } } });
+    expect(repository.executions[0]?.final).toMatchObject({ Success: 'N' });
+  });
+
+  it('reevaluates a CHECK after new user evidence without creating a Session or deciding PASS/BLOCK', async () => {
+    const { runtime, repository, run } = setup();
+    const target = flowAssistCheckInput.Targets[2]!;
+    const firstInput = { ...flowAssistCheckInput, Instructions: '', Targets: [target], Check: { Repair: true, RequireAll: false, OnRuntimeFailure: 'BLOCK' as const } };
+    run.mockResolvedValueOnce({ finalOutput: { Mode: 'CHECK', Results: [{ IdProcessLineFlow: target.IdProcessLineFlow, Action: 'MISSING', Value: null, Reason: 'Informe a transportadora.' }] } });
+    run.mockResolvedValueOnce({ finalOutput: { Mode: 'CHECK', Results: [{ IdProcessLineFlow: target.IdProcessLineFlow, Action: 'SET', Value: 'Jadlog', Reason: null }] } });
+    const first = await runtime.runFlowAssist(firstInput);
+    const second = await runtime.runFlowAssist({ ...firstInput, Messages: [...firstInput.Messages, { IdMessage: 1004, Role: 'USER', Text: 'Jadlog.' }] });
+    expect(first).toMatchObject({ statusCode: 200, response: { Mode: 'CHECK', Results: [{ Action: 'MISSING' }] } });
+    expect(second).toMatchObject({ statusCode: 200, response: { Mode: 'CHECK', Results: [{ Action: 'SET', Value: 'Jadlog' }] } });
+    expect(first.response.ExecutionUUID).not.toBe(second.response.ExecutionUUID);
+    expect(repository.executions).toHaveLength(2);
+    expect(repository.executions.every((execution) => execution.data.IdAIAgentSession === undefined)).toBe(true);
+    expect(JSON.stringify(second.response)).not.toMatch(/PASS|BLOCK|Step/);
+  });
+
+  it.each(['BLOCK', 'CONTINUE'] as const)('returns a CHECK failure for Core OnRuntimeFailure=%s to handle', async (OnRuntimeFailure) => {
+    const { runtime, run } = setup();
+    run.mockRejectedValueOnce(new Error('model unavailable'));
+    expect(await runtime.runFlowAssist({ ...flowAssistCheckInput, Instructions: '', Check: { Repair: true, OnRuntimeFailure } }))
+      .toMatchObject({ statusCode: 500, response: { Success: false, Mode: 'CHECK', Results: [], Error: { Code: 'AGENT_EXECUTION_ERROR' } } });
   });
 });

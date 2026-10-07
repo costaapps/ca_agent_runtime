@@ -25,6 +25,8 @@ import { SessionMutex } from './SessionMutex.js';
 import { KnowledgeSearchService } from '../knowledge/KnowledgeSearchService.js';
 import { EnvironmentProviderCredentialResolver } from '../knowledge/credentials/EnvironmentProviderCredentialResolver.js';
 import { OpenAIKnowledgeSearchProvider } from '../knowledge/providers/OpenAIKnowledgeSearchProvider.js';
+import { FlowAssistRuntime, type FlowAssistRuntimeResult } from './FlowAssistRuntime.js';
+import type { FlowAssistInput } from '../api/contracts/flowAssistInput.js';
 
 export interface AgentRuntimeOptions {
   repository: AiExecutionRepository;
@@ -136,15 +138,25 @@ function sessionKnowledgeConfiguration(session: AgentSessionRecord): KnowledgeCo
 }
 
 export class AgentRuntime {
+  private readonly flowAssistRuntime: FlowAssistRuntime;
   private readonly sessionMutex: SessionMutex;
   private readonly activeTurns = new Map<string, string>();
   private readonly knowledgeSearchService: KnowledgeSearchService;
 
   constructor(private readonly options: AgentRuntimeOptions) {
-    this.sessionMutex = options.sessionMutex ?? new SessionMutex();
     this.knowledgeSearchService = options.knowledgeSearchService ?? new KnowledgeSearchService(
       new OpenAIKnowledgeSearchProvider(), new EnvironmentProviderCredentialResolver(),
     );
+    this.flowAssistRuntime = new FlowAssistRuntime({
+      repository: options.repository, registry: options.registry, runner: options.runner,
+      model: options.model, tracingEnabled: options.tracingEnabled, traceIncludeSensitiveData: options.traceIncludeSensitiveData,
+      knowledgeSearchService: this.knowledgeSearchService,
+    });
+    this.sessionMutex = options.sessionMutex ?? new SessionMutex();
+  }
+
+  runFlowAssist(input: FlowAssistInput): Promise<FlowAssistRuntimeResult> {
+    return this.flowAssistRuntime.runFlowAssist(input);
   }
 
   async run(input: AgentRunInput): Promise<AgentRuntimeRunResult> {

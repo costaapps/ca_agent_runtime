@@ -130,12 +130,15 @@ function verifyImageContents() {
 }
 
 function verifyImageMigrationCommand() {
-  run('docker', [
-    'run', '--rm', '--platform', 'linux/amd64', '--env-file', envFile,
+  const args = [
+    'run', '--rm', '--platform', 'linux/amd64',
+    '--add-host', 'host.docker.internal:host-gateway', '--env-file', envFile,
     '--env', `MIGRATION_DB_USER=${process.env.SMOKE_DB_ADMIN_USER}`,
     '--env', `MIGRATION_DB_PASSWORD=${process.env.SMOKE_DB_ADMIN_PASSWORD}`,
-    image, 'node', 'dist/src/database/migrate.js', '--company-uuid', tenantAUUID,
-  ]);
+  ];
+  if (process.env.SMOKE_NETWORK) args.push('--network', process.env.SMOKE_NETWORK);
+  args.push(image, 'node', 'dist/src/database/migrate.js', '--company-uuid', tenantAUUID);
+  run('docker', args);
 }
 
 async function reserveLocalPort() {

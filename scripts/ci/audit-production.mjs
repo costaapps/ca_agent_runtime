@@ -1,16 +1,24 @@
 import { spawnSync } from 'node:child_process';
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const result = spawnSync(npm, ['audit', '--omit=dev', '--json'], {
+const isWindows = process.platform === 'win32';
+const npm = isWindows ? (process.env.ComSpec ?? 'cmd.exe') : 'npm';
+const args = isWindows
+  ? ['/d', '/s', '/c', 'npm.cmd audit --omit=dev --json']
+  : ['audit', '--omit=dev', '--json'];
+const result = spawnSync(npm, args, {
   encoding: 'utf8',
   maxBuffer: 16 * 1024 * 1024,
 });
+
+if (result.error) {
+  throw new Error(`Could not start the production dependency audit: ${result.error.message}`);
+}
 
 let report;
 try {
   report = JSON.parse(result.stdout);
 } catch {
-  const detail = result.stderr.trim() || result.stdout.trim() || `npm audit exited ${result.status}`;
+  const detail = result.stderr?.trim() || result.stdout?.trim() || `npm audit exited ${result.status}`;
   throw new Error(`Could not parse the production dependency audit result: ${detail}`);
 }
 

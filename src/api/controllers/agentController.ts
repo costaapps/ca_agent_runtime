@@ -3,6 +3,7 @@ import { AgentRunInputSchema } from '../contracts/agentRunInput.js';
 import type { AgentRuntime } from '../../runtime/AgentRuntime.js';
 import { AgentNotFoundError, RuntimeError } from '../../errors/RuntimeError.js';
 import { ErrorCodes } from '../../errors/errorCodes.js';
+import { getTenantHttpError } from '../tenantErrors.js';
 
 export function createAgentController(runtime: Pick<AgentRuntime, 'run'>) {
   return async function agentRunController(request: Request, response: Response): Promise<void> {
@@ -20,6 +21,15 @@ export function createAgentController(runtime: Pick<AgentRuntime, 'run'>) {
       const result = await runtime.run(parsed.data);
       response.status(result.statusCode).json(result.response);
     } catch (error) {
+      const tenantError = getTenantHttpError(error);
+      if (tenantError) {
+        response.status(tenantError.statusCode).json({
+          Success: false,
+          Output: null,
+          Error: { Code: tenantError.code, Message: tenantError.message },
+        });
+        return;
+      }
       if (error instanceof AgentNotFoundError) {
         response.status(422).json({
           Success: false,

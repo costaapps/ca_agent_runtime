@@ -7,11 +7,11 @@ PoC OpenAI-only que recebe execuções do CoreAPI em `POST /v1/agent-runs`, exec
 ```powershell
 npm install
 Copy-Item .env.example .env
-npm run db:migrate
+npm run db:migrate -- --company-uuid 00000000-0000-4000-8000-000000000001
 npm run dev
 ```
 
-O processo exige `OPENAI_API_KEY`, `OPENAI_MODEL`, as variáveis do MySQL de homologação e um MCP Server Streamable HTTP em `MCP_SERVER_URL`. Os testes padrão não usam OpenAI, banco ou MCP real.
+O comando de migration recebe um `CompanyUUID` cadastrado no Registry e usa `MIGRATION_DB_USER`/`MIGRATION_DB_PASSWORD`. O processo exige `OPENAI_API_KEY`, `OPENAI_MODEL`, acesso ao Registry central MariaDB, a allowlist `AGENT_RUNTIME_TENANT_ALLOWLIST` e um MCP Server Streamable HTTP em `MCP_SERVER_URL`. Os pools das bases de empresa são criados sob demanda a partir do cadastro central. Os testes padrão não usam OpenAI, banco ou MCP real.
 
 Comandos disponíveis:
 
@@ -27,10 +27,13 @@ npm run db:migrate
 
 `GET /health` retorna `{ "status": "ok" }`.
 
+`GET /health/live` verifica se o processo responde. `GET /health/ready` verifica Registry central e MCP (timeout/cache de 5 segundos). `GET /health/dependencies` retorna os estados dessas dependências e contadores agregados dos pools, sem endereços ou credenciais.
+
 `POST /v1/agent-runs`:
 
 ```json
 {
+  "CompanyUUID": "00000000-0000-4000-8000-000000000001",
   "Agent": "chat-orchestrator-poc",
   "IdCompany": 1003,
   "IdChat": 123,
@@ -59,6 +62,7 @@ Sucesso legado:
 
 ```json
 {
+  "CompanyUUID": "00000000-0000-4000-8000-000000000001",
   "TurnUUID": "14ed24ea-0000-4000-8000-000000000001",
   "Agent": "sales-agent",
   "IdCompany": 1003,
@@ -103,8 +107,26 @@ Com referências autorizadas, qualquer Root Agent recebe a tool local `search_kn
 `POST /v1/agent-sessions/close` fecha a Session após confirmação do Core:
 
 ```json
-{ "IdCompany": 1003, "IdProcessLine": 456, "Reason": "PROCESS_LINE_CLOSED" }
+{ "CompanyUUID": "00000000-0000-4000-8000-000000000001", "IdCompany": 1003, "IdProcessLine": 456, "Reason": "PROCESS_LINE_CLOSED" }
 ```
+
+### Multi-tenancy central
+
+As quatro rotas (`agent-runs`, `agent-turns`, `flow-assist` e `agent-sessions/close`) exigem `CompanyUUID`. O Runtime normaliza o UUID, consulta primeiro a allowlist local e resolve `Company` → `Databases` no Registry central. O `IdCompany` do corpo precisa corresponder ao cadastro. O payload não escolhe host, schema ou usuário de banco.
+
+Configure `CENTRAL_DB_HOST`, `CENTRAL_DB_PORT`, `CENTRAL_DB_NAME`, `CENTRAL_DB_USER` e `CENTRAL_DB_PASS` para o Registry, junto a `AGENT_RUNTIME_TENANT_ALLOWLIST` como array JSON não vazio de UUIDs distintos. `CENTRAL_DB_CONNECTION_LIMIT` usa 4 conexões e `CENTRAL_REGISTRY_CACHE_MS` usa TTL de 60 segundos. `TENANT_DB_CONNECTION_LIMIT=8`, `TENANT_DB_MAX_POOLS=32` e `TENANT_DB_IDLE_TIMEOUT_MS=300000` controlam pools das bases empresariais. Não existe fallback para banco padrão.
+
+O descriptor resolvido congela `CompanyUUID`, `IdDatabase` e `IdCompany` para a execução. A fronteira de identidade usa hoje o `CompanyUUID` da requisição por meio de `RequestTenantIdentityResolver`, que pode ser substituído por uma integração de autenticação futura. Cada operação mantém um lease de pool durante espera por Session, inferência, ferramentas, persistência e logs. Empresas na mesma base compartilham pool por `IdDatabase`, enquanto repositories filtram pelo `IdCompany`. A coordenação de Session e Turn é compartilhada dentro do processo Node; esta versão pressupõe uma instância do Runtime.
+
+O MCP segue como endpoint compartilhado. Chamadas habilitadas recebem `CompanyUUID` e `IdDatabase` em `_meta.ca.Execution`; o MCP real precisa adotar o roteamento por esses campos, e o Core precisa enviar `CompanyUUID`. A resolução de identidade ainda usa o UUID do corpo e a allowlist configurada; autenticação fica para uma etapa posterior.
+
+Executar migration em uma empresa específica usa credenciais administrativas fornecidas apenas para o comando:
+
+```text
+npm run db:migrate:prod -- --company-uuid <CompanyUUID>
+```
+
+O executor resolve uma base pelo Registry, usa `MIGRATION_DB_USER` e `MIGRATION_DB_PASSWORD`, e não roda no startup. A migration de Turn substitui unicidade global de `TurnUUID` por `(IdCompany, TurnUUID)`. Depois que empresas distintas reutilizarem o mesmo `TurnUUID`, rollback para a imagem anterior ao modo central não é seguro; use uma imagem central compatível com o schema.
 
 ## Arquitetura operacional
 
@@ -118,6 +140,7 @@ Contrato de entrada (IDs numéricos inteiros positivos):
 
 ```json
 {
+  "CompanyUUID": "00000000-0000-4000-8000-000000000001",
   "Agent": "flow-assist-agent",
   "IdCompany": 1003,
   "IdChat": 123,
@@ -189,6 +212,7 @@ O mesmo endpoint aceita `Mode: "CHECK"`. O manifesto CHECK inclui `Targets[].Res
 
 ```json
 {
+  "CompanyUUID": "00000000-0000-4000-8000-000000000001",
   "Agent": "flow-assist-agent",
   "IdCompany": 1003,
   "IdChat": 123,

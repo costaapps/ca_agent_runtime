@@ -12,6 +12,7 @@ export const FlowAssistTargetSchema = z.object({
 }).strict();
 
 const FlowAssistBaseSchema = z.object({
+  CompanyUUID: z.string().uuid().transform((value) => value.toLowerCase()),
   Agent: z.string().min(1),
   IdCompany: IdSchema,
   IdChat: IdSchema,
@@ -81,6 +82,9 @@ export const FlowAssistCheckInputSchema = FlowAssistBaseSchema.safeExtend({
 
 // Legacy PREFILL payloads have no Mode. CHECK always uses an explicit discriminator.
 export const FlowAssistInputSchema = z.union([FlowAssistCheckInputSchema, FlowAssistPrefillInputSchema]);
-export type FlowAssistInput = z.infer<typeof FlowAssistInputSchema>;
-export type FlowAssistPrefillInput = z.infer<typeof FlowAssistPrefillInputSchema>;
-export type FlowAssistCheckInput = z.infer<typeof FlowAssistCheckInputSchema>;
+export type ParsedFlowAssistInput = z.infer<typeof FlowAssistInputSchema>;
+export type ParsedFlowAssistPrefillInput = z.infer<typeof FlowAssistPrefillInputSchema>;
+export type ParsedFlowAssistCheckInput = z.infer<typeof FlowAssistCheckInputSchema>;
+export type FlowAssistPrefillInput = Omit<ParsedFlowAssistPrefillInput, 'CompanyUUID'> & { CompanyUUID?: string };
+export type FlowAssistCheckInput = Omit<ParsedFlowAssistCheckInput, 'CompanyUUID'> & { CompanyUUID?: string };
+export type FlowAssistInput = FlowAssistPrefillInput | FlowAssistCheckInput;

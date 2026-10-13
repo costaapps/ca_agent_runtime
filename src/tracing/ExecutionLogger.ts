@@ -1,5 +1,6 @@
 import type { AiExecutionRepository, ExecutionLogRecord } from '../database/repositories/aiExecutionRepository.js';
 import { ExecutionEventTypes, type ExecutionEventType } from './eventTypes.js';
+import type { TenantTraceIdentity } from '../runtime/TenantScope.js';
 
 function serialize(value: unknown): string | undefined {
   if (value === undefined) return undefined;
@@ -16,6 +17,7 @@ export class ExecutionLogger {
   constructor(
     private readonly repository: AiExecutionRepository,
     private readonly executionId: number,
+    private readonly tenant?: TenantTraceIdentity,
   ) {}
 
   async append(event: ExecutionEventType, data: Omit<ExecutionLogRecord, 'Sequence' | 'EventType'> = {}): Promise<void> {
@@ -28,7 +30,10 @@ export class ExecutionLogger {
   }
 
   runtimeStart(): Promise<void> {
-    return this.append(ExecutionEventTypes.RuntimeStart, { Status: 'STARTED' });
+    return this.append(ExecutionEventTypes.RuntimeStart, {
+      Status: 'STARTED',
+      ...(this.tenant ? { InputJSON: serialize({ Tenant: this.tenant }) } : {}),
+    });
   }
 
   agentStart(agentName: string): Promise<void> {

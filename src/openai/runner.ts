@@ -18,9 +18,13 @@ export function createOpenAIRunner(): OpenAIRunner {
         model: tracing.model,
         workflowName: 'Msg4 AI Flow',
         traceId: tracing.traceId,
-        groupId: String(tracing.idChat),
+        groupId: tracing.companyUUID && tracing.idDatabase !== undefined
+          ? `${tracing.companyUUID}:${tracing.idDatabase}:${tracing.idChat}`
+          : String(tracing.idChat),
         traceMetadata: {
           ExecutionUUID: tracing.executionUUID,
+          CompanyUUID: tracing.companyUUID ?? '',
+          IdDatabase: tracing.idDatabase === undefined ? '' : String(tracing.idDatabase),
           IdProcessLine: String(tracing.idProcessLine),
           IdProcessLineFlow: tracing.idProcessLineFlow === null ? '' : String(tracing.idProcessLineFlow),
           SessionUUID: tracing.sessionUUID ?? '',

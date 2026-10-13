@@ -19,4 +19,6 @@ export interface TraceSettings {
   activationUUID?: string;
   rootAgent?: string;
   traceId: string;
+  companyUUID?: string;
+  idDatabase?: number;
 }

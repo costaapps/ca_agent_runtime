@@ -9,6 +9,7 @@ export const ExpectedOutputSchema = z.object({
 }).passthrough();
 
 export const AgentRunInputSchema = z.object({
+  CompanyUUID: z.string().uuid().transform((value) => value.toLowerCase()),
   Agent: z.string().min(1),
   IdCompany: z.coerce.number().int(),
   IdChat: z.coerce.number().int(),
@@ -19,4 +20,15 @@ export const AgentRunInputSchema = z.object({
 }).passthrough();
 
 export type ExpectedOutput = z.infer<typeof ExpectedOutputSchema>;
-export type AgentRunInput = z.infer<typeof AgentRunInputSchema>;
+export type ParsedAgentRunInput = z.infer<typeof AgentRunInputSchema>;
+export interface AgentRunInput {
+  CompanyUUID?: string;
+  Agent: string;
+  IdCompany: number;
+  IdChat: number;
+  IdProcessLine: number;
+  IdProcessLineFlow: number;
+  Message: string;
+  ExpectedOutput: ExpectedOutput;
+  [key: string]: unknown;
+}

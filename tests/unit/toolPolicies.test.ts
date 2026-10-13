@@ -4,9 +4,10 @@ import { createRuntimeContext } from '../../src/runtime/RuntimeContext.js';
 import { createToolFilter, isToolAvailable } from '../../src/runtime/ToolPolicies.js';
 
 const context = createRuntimeContext({
+  CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
   Agent: 'chat-orchestrator-poc', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789,
   Message: 'Olá', ExpectedOutput: { Name: 'Intent', Description: 'Identifique.' },
-}, 'uuid');
+}, 'uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
 
 describe('ToolPolicies', () => {
   it('keeps the legacy and product tools disabled for every Agent', () => {
@@ -57,7 +58,7 @@ describe('ToolPolicies', () => {
     }
     const resolver = (await import('../../src/mcp/toolMetaResolver.js')).createToolMetaResolver(new (await import('../../src/mcp/observability.js')).McpObservabilityRegistry());
     const meta = await resolver({ runContext: new RunContext(navigationContext), serverName: 'fake', toolName: 'request_handoff', arguments: { DestinationRef: 'nav_sales', Reason: 'Compra', Summary: 'Cliente quer comprar' } });
-    expect(meta).toEqual({ ca: { Execution: { ExecutionUUID: 'uuid', TurnUUID: '14ed24ea-0000-4000-8000-000000000001', IdCompany: 1003, IdProcessLine: 456 } } });
+    expect(meta).toEqual({ ca: { Execution: { ExecutionUUID: 'uuid', TurnUUID: '14ed24ea-0000-4000-8000-000000000001', IdCompany: 1003, IdProcessLine: 456, CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8 } } });
   });
 
   it('implements the fail-closed SDK callable filter', async () => {
@@ -86,6 +87,6 @@ describe('ToolPolicies', () => {
     }
     const resolver = (await import('../../src/mcp/toolMetaResolver.js')).createToolMetaResolver(new (await import('../../src/mcp/observability.js')).McpObservabilityRegistry());
     const meta = await resolver({ runContext: new RunContext(flowContext), serverName: 'fake', toolName: 'list_flow_actions', arguments: {} });
-    expect(meta).toEqual({ ca: { Execution: { ExecutionUUID: 'uuid', TurnUUID: '14ed24ea-0000-4000-8000-000000000001', IdCompany: 1003, IdProcessLine: 456 } } });
+    expect(meta).toEqual({ ca: { Execution: { ExecutionUUID: 'uuid', TurnUUID: '14ed24ea-0000-4000-8000-000000000001', IdCompany: 1003, IdProcessLine: 456, CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8 } } });
   });
 });

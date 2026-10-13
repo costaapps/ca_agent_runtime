@@ -1,0 +1,572 @@
+{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "cb515f5e-495e-4c70-96bd-04d1df434f44",
+  "prevId": "b84bbc88-5bbe-4db5-bfc4-4d8dc98d1d38",
+  "tables": {
+    "AIAgentExecution": {
+      "name": "AIAgentExecution",
+      "columns": {
+        "IdAIAgentExecution": {
+          "name": "IdAIAgentExecution",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "ExecutionUUID": {
+          "name": "ExecutionUUID",
+          "type": "char(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "IdCompany": {
+          "name": "IdCompany",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "IdChat": {
+          "name": "IdChat",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "IdProcessLine": {
+          "name": "IdProcessLine",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "IdProcessLineFlow": {
+          "name": "IdProcessLineFlow",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "IdAIAgentSession": {
+          "name": "IdAIAgentSession",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "TurnUUID": {
+          "name": "TurnUUID",
+          "type": "char(36)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "TurnInputJSON": {
+          "name": "TurnInputJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "TurnPayloadHash": {
+          "name": "TurnPayloadHash",
+          "type": "char(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "RequestedAgent": {
+          "name": "RequestedAgent",
+          "type": "varchar(250)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "FinalAgent": {
+          "name": "FinalAgent",
+          "type": "varchar(250)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "Message": {
+          "name": "Message",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ExpectedOutputJSON": {
+          "name": "ExpectedOutputJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "RuntimeConfigJSON": {
+          "name": "RuntimeConfigJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "Success": {
+          "name": "Success",
+          "type": "char(1)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'N'"
+        },
+        "OutputJSON": {
+          "name": "OutputJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ErrorCode": {
+          "name": "ErrorCode",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ErrorMessage": {
+          "name": "ErrorMessage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "OpenAITraceId": {
+          "name": "OpenAITraceId",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "StartedAt": {
+          "name": "StartedAt",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "FinishedAt": {
+          "name": "FinishedAt",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "DurationMs": {
+          "name": "DurationMs",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "IX_AIAgentExecution_ProcessLineFlow": {
+          "name": "IX_AIAgentExecution_ProcessLineFlow",
+          "columns": [
+            "IdProcessLineFlow"
+          ],
+          "isUnique": false
+        },
+        "IX_AIAgentExecution_Chat": {
+          "name": "IX_AIAgentExecution_Chat",
+          "columns": [
+            "IdChat",
+            "StartedAt"
+          ],
+          "isUnique": false
+        },
+        "IX_AIAgentExecution_OpenAITraceId": {
+          "name": "IX_AIAgentExecution_OpenAITraceId",
+          "columns": [
+            "OpenAITraceId"
+          ],
+          "isUnique": false
+        },
+        "IX_AIAgentExecution_Session": {
+          "name": "IX_AIAgentExecution_Session",
+          "columns": [
+            "IdAIAgentSession"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "AIAgentExecution_IdAIAgentExecution": {
+          "name": "AIAgentExecution_IdAIAgentExecution",
+          "columns": [
+            "IdAIAgentExecution"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "UQ_AIAgentExecution_UUID": {
+          "name": "UQ_AIAgentExecution_UUID",
+          "columns": [
+            "ExecutionUUID"
+          ]
+        },
+        "UQ_AIAgentExecution_Company_TurnUUID": {
+          "name": "UQ_AIAgentExecution_Company_TurnUUID",
+          "columns": [
+            "IdCompany",
+            "TurnUUID"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "AIAgentExecutionLog": {
+      "name": "AIAgentExecutionLog",
+      "columns": {
+        "IdAIAgentExecutionLog": {
+          "name": "IdAIAgentExecutionLog",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "IdAIAgentExecution": {
+          "name": "IdAIAgentExecution",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "Sequence": {
+          "name": "Sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "EventType": {
+          "name": "EventType",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "AgentName": {
+          "name": "AgentName",
+          "type": "varchar(250)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "TargetAgentName": {
+          "name": "TargetAgentName",
+          "type": "varchar(250)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ToolName": {
+          "name": "ToolName",
+          "type": "varchar(250)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "InputJSON": {
+          "name": "InputJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "OutputJSON": {
+          "name": "OutputJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "Status": {
+          "name": "Status",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "DurationMs": {
+          "name": "DurationMs",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ErrorMessage": {
+          "name": "ErrorMessage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "CreateDateTime": {
+          "name": "CreateDateTime",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {
+        "IX_AIAgentExecutionLog_Execution": {
+          "name": "IX_AIAgentExecutionLog_Execution",
+          "columns": [
+            "IdAIAgentExecution",
+            "Sequence"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "AIAgentExecutionLog_IdAIAgentExecutionLog": {
+          "name": "AIAgentExecutionLog_IdAIAgentExecutionLog",
+          "columns": [
+            "IdAIAgentExecutionLog"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "AIAgentSession": {
+      "name": "AIAgentSession",
+      "columns": {
+        "IdAIAgentSession": {
+          "name": "IdAIAgentSession",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "SessionUUID": {
+          "name": "SessionUUID",
+          "type": "char(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "IdCompany": {
+          "name": "IdCompany",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "IdChat": {
+          "name": "IdChat",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "IdProcessLine": {
+          "name": "IdProcessLine",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "RootAgent": {
+          "name": "RootAgent",
+          "type": "varchar(250)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "AgentConfigurationRevision": {
+          "name": "AgentConfigurationRevision",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "AgentConfigurationJSON": {
+          "name": "AgentConfigurationJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "KnowledgeConfigurationJSON": {
+          "name": "KnowledgeConfigurationJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "Status": {
+          "name": "Status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "StartedAt": {
+          "name": "StartedAt",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "LastActivityAt": {
+          "name": "LastActivityAt",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ClosedAt": {
+          "name": "ClosedAt",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "IX_AIAgentSession_Status": {
+          "name": "IX_AIAgentSession_Status",
+          "columns": [
+            "Status"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "AIAgentSession_IdAIAgentSession": {
+          "name": "AIAgentSession_IdAIAgentSession",
+          "columns": [
+            "IdAIAgentSession"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "UQ_AIAgentSession_UUID": {
+          "name": "UQ_AIAgentSession_UUID",
+          "columns": [
+            "SessionUUID"
+          ]
+        },
+        "UQ_AIAgentSession_CompanyProcessLine": {
+          "name": "UQ_AIAgentSession_CompanyProcessLine",
+          "columns": [
+            "IdCompany",
+            "IdProcessLine"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "AIAgentSessionItem": {
+      "name": "AIAgentSessionItem",
+      "columns": {
+        "IdAIAgentSessionItem": {
+          "name": "IdAIAgentSessionItem",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "IdAIAgentSession": {
+          "name": "IdAIAgentSession",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "Sequence": {
+          "name": "Sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ExecutionUUID": {
+          "name": "ExecutionUUID",
+          "type": "char(36)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ItemJSON": {
+          "name": "ItemJSON",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "CreateDateTime": {
+          "name": "CreateDateTime",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "IX_AIAgentSessionItem_Session": {
+          "name": "IX_AIAgentSessionItem_Session",
+          "columns": [
+            "IdAIAgentSession",
+            "Sequence"
+          ],
+          "isUnique": false
+        },
+        "IX_AIAgentSessionItem_Execution": {
+          "name": "IX_AIAgentSessionItem_Execution",
+          "columns": [
+            "ExecutionUUID"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "AIAgentSessionItem_IdAIAgentSessionItem": {
+          "name": "AIAgentSessionItem_IdAIAgentSessionItem",
+          "columns": [
+            "IdAIAgentSessionItem"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "UQ_AIAgentSessionItem_SessionSequence": {
+          "name": "UQ_AIAgentSessionItem_SessionSequence",
+          "columns": [
+            "IdAIAgentSession",
+            "Sequence"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    }
+  },
+  "views": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
+  }
+}

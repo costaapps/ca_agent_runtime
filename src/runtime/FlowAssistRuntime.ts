@@ -13,6 +13,8 @@ import { createOpenAITraceId } from '../openai/tracing.js';
 import { ExecutionLogger } from '../tracing/ExecutionLogger.js';
 import type { RuntimeContextData } from './RuntimeContext.js';
 import type { KnowledgeSearchService } from '../knowledge/KnowledgeSearchService.js';
+import type { TenantScope } from './TenantScope.js';
+import type { RuntimeExecutionContext } from './RuntimeContext.js';
 
 export interface FlowAssistRuntimeOptions {
   repository: AiExecutionRepository;
@@ -22,6 +24,7 @@ export interface FlowAssistRuntimeOptions {
   tracingEnabled: boolean;
   traceIncludeSensitiveData: boolean;
   knowledgeSearchService: KnowledgeSearchService;
+  tenantScope?: TenantScope;
 }
 
 export interface FlowAssistRuntimeResult {
@@ -84,17 +87,30 @@ export class FlowAssistRuntime {
           IdProcessLine: input.IdProcessLine,
           IdProcessLineFlow: input.IdProcessLineFlow,
           Message: JSON.stringify(input.Messages),
-          RuntimeConfigJSON: JSON.stringify({ Mode: 'FLOW_ASSIST', ...(input.Mode === 'CHECK' ? { AssistMode: 'CHECK' } : {}), Model: this.options.model, TracingEnabled: this.options.tracingEnabled }),
+          RuntimeConfigJSON: JSON.stringify({
+            Mode: 'FLOW_ASSIST', ...(input.Mode === 'CHECK' ? { AssistMode: 'CHECK' } : {}),
+            Model: this.options.model, TracingEnabled: this.options.tracingEnabled,
+            ...(this.options.tenantScope ? { Tenant: { CompanyUUID: this.options.tenantScope.CompanyUUID, IdDatabase: this.options.tenantScope.IdDatabase } } : {}),
+          }),
           Success: 'N',
           OpenAITraceId: traceId,
           StartedAt: new Date(startedAt),
         });
       } catch (error) { throw asRuntimeError(error, ErrorCodes.PersistenceError); }
 
-      logger = new ExecutionLogger(this.options.repository, executionId);
+      logger = new ExecutionLogger(this.options.repository, executionId, this.options.tenantScope);
       await persist(() => logger!.runtimeStart());
+      const execution: RuntimeExecutionContext = {
+        ExecutionUUID: executionUUID,
+        CompanyUUID: this.options.tenantScope?.CompanyUUID ?? input.CompanyUUID,
+        IdDatabase: this.options.tenantScope?.IdDatabase,
+        IdCompany: input.IdCompany,
+        IdChat: input.IdChat,
+        IdProcessLine: input.IdProcessLine,
+        IdProcessLineFlow: input.IdProcessLineFlow,
+      };
       const context: RuntimeContextData = {
-        Execution: Object.freeze({ ExecutionUUID: executionUUID, IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, IdProcessLineFlow: input.IdProcessLineFlow }),
+        Execution: Object.freeze(execution),
         ProcessContext: Object.freeze({ System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} }),
         ActivationContext: null,
         Resolved: {},
@@ -115,6 +131,8 @@ export class FlowAssistRuntime {
         idChat: input.IdChat,
         idProcessLine: input.IdProcessLine,
         idProcessLineFlow: input.IdProcessLineFlow,
+        companyUUID: this.options.tenantScope?.CompanyUUID,
+        idDatabase: this.options.tenantScope?.IdDatabase,
         traceId,
       }).catch((error: unknown) => {
         // The SDK parses outputType before returning finalOutput. Preserve the

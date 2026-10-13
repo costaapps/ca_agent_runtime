@@ -49,32 +49,32 @@ export const ToolPolicies: Readonly<Record<string, ToolPolicy>> = {
   list_flow_actions: {
     enabled: true,
     allowedAgents: ['FlowAgent'],
-    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
-    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
   },
   describe_flow_action: {
     enabled: true,
     allowedAgents: ['FlowAgent'],
-    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
-    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
   },
   execute_flow_action: {
     enabled: true,
     allowedAgents: ['FlowAgent'],
-    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
-    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
   },
   list_navigation_destinations: {
     enabled: true,
     allowedAgents: ['NavigationAgent'],
-    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
-    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
   },
   request_handoff: {
     enabled: true,
     allowedAgents: ['NavigationAgent'],
-    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
-    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine'],
+    requires: ['Execution.ExecutionUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
+    meta: ['Execution.ExecutionUUID', 'Execution.TurnUUID', 'Execution.IdCompany', 'Execution.IdProcessLine', 'Execution.CompanyUUID', 'Execution.IdDatabase'],
   },
 };
 

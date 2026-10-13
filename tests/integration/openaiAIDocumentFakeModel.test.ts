@@ -119,6 +119,7 @@ function createTestRuntime(model: DeterministicAIDocumentModel, server: ReturnTy
     mcpServer: server,
     observability,
     model: 'test-model',
+    tenantScope: { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 },
     tracingEnabled: false,
     traceIncludeSensitiveData: false,
   });

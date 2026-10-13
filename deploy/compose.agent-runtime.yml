@@ -2,7 +2,7 @@ services:
   agent-runtime:
     image: ${DOCKERHUB_IMAGE:-eduardomatuellacostaapps/ca}@${AGENT_RUNTIME_DIGEST:?Set AGENT_RUNTIME_DIGEST to sha256:<published digest>}
     env_file:
-      - ${AGENT_RUNTIME_ENV_FILE:-./agent-runtime.env}
+      - ${AGENT_RUNTIME_ENV_FILE:-../agent-runtime.env}
     environment:
       NODE_ENV: production
       PORT: "3101"

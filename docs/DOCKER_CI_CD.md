@@ -19,6 +19,16 @@ Esse comando escolhe uma única base pelo Registry e usa
 executa migrations. A imagem também não recebe `.env`, credenciais, checkout
 Git, testes ou ferramentas de desenvolvimento.
 
+Mantenha as credenciais administrativas fora do arquivo de ambiente do
+servidor. Injete-as apenas no comando de migration, por exemplo em um shell
+Linux que já recebeu os valores de um cofre de segredos:
+
+```sh
+docker compose -f deploy/compose.agent-runtime.yml run --rm --no-deps \
+  -e MIGRATION_DB_USER -e MIGRATION_DB_PASSWORD \
+  agent-runtime npm run db:migrate:prod -- --company-uuid "$COMPANY_UUID"
+```
+
 O Compose de referência consome uma imagem por digest, mantém uma instância,
 recebe configuração de fora do container, limita a rotação de logs e concede
 130 segundos para encerramento gracioso.

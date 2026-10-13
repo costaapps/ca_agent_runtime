@@ -23,6 +23,15 @@ RUN npm ci --omit=dev --include=optional --no-audit --no-fund \
 FROM --platform=linux/amd64 ${NODE_IMAGE} AS runtime
 WORKDIR /app
 
+# Keep the pinned Node base while installing the current Debian security updates.
+# Package managers are only needed in the build stages, not in the server runtime.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+        /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v1.22.22
+
 ARG OCI_VERSION=0.2.0
 ARG OCI_REVISION=unknown
 ARG OCI_SOURCE=https://github.com/costaapps/ca_agent_runtime

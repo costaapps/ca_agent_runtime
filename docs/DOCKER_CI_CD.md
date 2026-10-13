@@ -6,7 +6,9 @@ A imagem é Linux `amd64`, roda como usuário `node` e usa Node `24.21.0` sobre
 `bookworm-slim`. A imagem base deve ser referenciada pelo digest aprovado no
 Dockerfile. O build de produção mantém `dist/src/server.js` e instala as
 dependências de produção pelo lockfile, incluindo dependências opcionais
-necessárias ao cliente MCP.
+necessárias ao cliente MCP. O estágio final aplica as atualizações de segurança
+disponíveis no Debian e remove os gerenciadores npm, Corepack e Yarn, usados
+somente durante o build.
 
 A mesma imagem serve a API e o executor administrativo de migrations:
 

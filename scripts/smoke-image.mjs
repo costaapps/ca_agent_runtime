@@ -116,6 +116,14 @@ function verifyImageContents() {
     for (const tool of ['tsx', 'vitest', 'drizzle-kit', 'typescript']) {
       assert.ok(!fs.existsSync(path.join('/app/node_modules', tool)), 'development tool in production image: ' + tool);
     }
+    for (const file of [
+      '/usr/local/bin/npm', '/usr/local/bin/npx', '/usr/local/bin/corepack',
+      '/usr/local/bin/yarn', '/usr/local/bin/yarnpkg',
+      '/usr/local/lib/node_modules/npm', '/usr/local/lib/node_modules/corepack',
+      '/opt/yarn-v1.22.22',
+    ]) {
+      assert.ok(!fs.existsSync(file), 'package manager in production image: ' + file);
+    }
     console.log(JSON.stringify({ uid: process.getuid?.(), sqlMigrations: migrations.length }));
   `;
   run('docker', ['run', '--rm', '--platform', 'linux/amd64', '--entrypoint', 'node', image, '-e', check]);

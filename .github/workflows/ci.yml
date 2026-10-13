@@ -1,0 +1,21 @@
+name: Agent Runtime CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-runtime-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+    with:
+      release_mode: false
+      expected_sha: ${{ github.sha }}

@@ -3,7 +3,7 @@ import { system, type AgentInputItem, type MCPServer } from '@openai/agents';
 import type { AgentRunInput } from '../api/contracts/agentRunInput.js';
 import type { AgentRunOutput, AgentRunSuccess } from '../api/contracts/agentRunOutput.js';
 import type { AgentSessionCloseInput, AgentSessionCloseOutput } from '../api/contracts/agentSessionClose.js';
-import { AgentConfigurationSchema, type AgentConfiguration, AgentTurnInputSchema, type AgentTurnInput } from '../api/contracts/agentTurnInput.js';
+import { AgentConfigurationSchema, type AgentConfiguration, AgentTurnRuntimeInputSchema, type AgentTurnInput } from '../api/contracts/agentTurnInput.js';
 import { KnowledgeConfigurationSchema, effectiveKnowledgeConfiguration, type KnowledgeConfiguration } from '../api/contracts/knowledgeConfiguration.js';
 import { AIDocumentRootOutputSchema, type AgentTurnFailure, type AgentTurnOutput, type AgentTurnSuccess } from '../api/contracts/agentTurnOutput.js';
 import { AgentNotFoundError, RuntimeError, asRuntimeError } from '../errors/RuntimeError.js';
@@ -27,6 +27,7 @@ import { EnvironmentProviderCredentialResolver } from '../knowledge/credentials/
 import { OpenAIKnowledgeSearchProvider } from '../knowledge/providers/OpenAIKnowledgeSearchProvider.js';
 import { FlowAssistRuntime, type FlowAssistRuntimeResult } from './FlowAssistRuntime.js';
 import type { FlowAssistInput } from '../api/contracts/flowAssistInput.js';
+import type { TenantScope } from './TenantScope.js';
 
 export interface AgentRuntimeOptions {
   repository: AiExecutionRepository;
@@ -40,6 +41,8 @@ export interface AgentRuntimeOptions {
   traceIncludeSensitiveData: boolean;
   mcpServerName?: string;
   sessionMutex?: SessionMutex;
+  activeTurns?: Map<string, string>;
+  tenantScope?: TenantScope;
   knowledgeSearchService?: KnowledgeSearchService;
 }
 
@@ -140,7 +143,7 @@ function sessionKnowledgeConfiguration(session: AgentSessionRecord): KnowledgeCo
 export class AgentRuntime {
   private readonly flowAssistRuntime: FlowAssistRuntime;
   private readonly sessionMutex: SessionMutex;
-  private readonly activeTurns = new Map<string, string>();
+  private readonly activeTurns: Map<string, string>;
   private readonly knowledgeSearchService: KnowledgeSearchService;
 
   constructor(private readonly options: AgentRuntimeOptions) {
@@ -151,8 +154,10 @@ export class AgentRuntime {
       repository: options.repository, registry: options.registry, runner: options.runner,
       model: options.model, tracingEnabled: options.tracingEnabled, traceIncludeSensitiveData: options.traceIncludeSensitiveData,
       knowledgeSearchService: this.knowledgeSearchService,
+      tenantScope: options.tenantScope,
     });
     this.sessionMutex = options.sessionMutex ?? new SessionMutex();
+    this.activeTurns = options.activeTurns ?? new Map<string, string>();
   }
 
   runFlowAssist(input: FlowAssistInput): Promise<FlowAssistRuntimeResult> {
@@ -165,7 +170,12 @@ export class AgentRuntime {
     const executionUUID = randomUUID();
     const openAITraceId = createOpenAITraceId();
     const startedAt = Date.now();
-    const runtimeConfig = { Model: this.options.model, MCPServer: this.options.mcpServerName ?? 'msg4-mcp', TracingEnabled: this.options.tracingEnabled };
+    const runtimeConfig = {
+      Model: this.options.model,
+      MCPServer: this.options.mcpServerName ?? 'msg4-mcp',
+      TracingEnabled: this.options.tracingEnabled,
+      ...(this.options.tenantScope ? { Tenant: { CompanyUUID: this.options.tenantScope.CompanyUUID, IdDatabase: this.options.tenantScope.IdDatabase } } : {}),
+    };
     const execution: NewAIAgentExecution = {
       ExecutionUUID: executionUUID,
       IdCompany: input.IdCompany,
@@ -185,8 +195,8 @@ export class AgentRuntime {
     try { executionId = await this.options.repository.createExecution(execution); }
     catch (error) { throw asRuntimeError(error, ErrorCodes.PersistenceError); }
 
-    const logger = new ExecutionLogger(this.options.repository, executionId);
-    const context = createRuntimeContext(input, executionUUID);
+    const logger = new ExecutionLogger(this.options.repository, executionId, this.options.tenantScope);
+    const context = createRuntimeContext(input, executionUUID, this.options.tenantScope);
     this.options.observability.register(context, logger);
     try {
       await logger.runtimeStart();
@@ -208,6 +218,8 @@ export class AgentRuntime {
         idChat: input.IdChat,
         idProcessLine: input.IdProcessLine,
         idProcessLineFlow: input.IdProcessLineFlow,
+        companyUUID: this.options.tenantScope?.CompanyUUID,
+        idDatabase: this.options.tenantScope?.IdDatabase,
         traceId: openAITraceId,
       };
       const result = await this.options.runner.run(graph.root, input.Message, context, traceSettings);
@@ -230,34 +242,35 @@ export class AgentRuntime {
   }
 
   async runTurn(input: AgentTurnInput): Promise<AgentTurnRuntimeResult> {
-    const parsed = AgentTurnInputSchema.safeParse(input);
+    const parsed = AgentTurnRuntimeInputSchema.safeParse(input);
     if (!parsed.success) return turnFailure(input, ErrorCodes.InvalidRequest, 'Payload de Turn inválido.');
     input = parsed.data;
     const sessionRepository = this.options.sessionRepository;
     if (!sessionRepository) return turnFailure(input, ErrorCodes.PersistenceError, 'Persistência de Session não configurada.');
     const payloadHash = hashTurnPayload(input);
-    const activeHash = this.activeTurns.get(input.TurnUUID);
+    const activeKey = JSON.stringify([this.options.tenantScope?.IdDatabase ?? null, this.options.tenantScope?.IdCompany ?? input.IdCompany, input.TurnUUID]);
+    const activeHash = this.activeTurns.get(activeKey);
     if (activeHash) {
       return activeHash === payloadHash
         ? turnFailure(input, ErrorCodes.TurnInProgress, 'O Turn ainda está em execução.')
         : turnFailure(input, ErrorCodes.TurnIdempotencyConflict, 'TurnUUID já foi usado com payload diferente.');
     }
-    this.activeTurns.set(input.TurnUUID, payloadHash);
-    const lockKey = `${input.IdCompany}:${input.IdProcessLine}`;
+    this.activeTurns.set(activeKey, payloadHash);
+    const lockKey = JSON.stringify([this.options.tenantScope?.IdDatabase ?? null, this.options.tenantScope?.IdCompany ?? input.IdCompany, input.IdProcessLine]);
     try {
       return await this.sessionMutex.runExclusive(lockKey, async () => this.runTurnLocked(input, sessionRepository));
     } finally {
-      this.activeTurns.delete(input.TurnUUID);
+      this.activeTurns.delete(activeKey);
     }
   }
 
   async closeSession(input: AgentSessionCloseInput): Promise<AgentSessionCloseRuntimeResult> {
     const sessionRepository = this.options.sessionRepository;
     if (!sessionRepository) return { statusCode: 500, response: { Success: false, Error: { Code: ErrorCodes.PersistenceError, Message: 'Persistência de Session não configurada.' } } };
-    const lockKey = `${input.IdCompany}:${input.IdProcessLine}`;
+    const lockKey = JSON.stringify([this.options.tenantScope?.IdDatabase ?? null, this.options.tenantScope?.IdCompany ?? input.IdCompany, input.IdProcessLine]);
     return this.sessionMutex.runExclusive(lockKey, async () => {
       try {
-        const session = await sessionRepository.closeSession(input.IdCompany, input.IdProcessLine);
+        const session = await sessionRepository.closeSession(input.IdProcessLine);
         if (!session) return { statusCode: 404, response: { Success: false, Error: { Code: ErrorCodes.AgentSessionNotFound, Message: 'Session não encontrada.' } } };
         return { statusCode: 200, response: { Success: true, SessionUUID: session.SessionUUID, Status: 'CLOSED' } satisfies AgentSessionCloseOutput };
       } catch (error) {
@@ -274,7 +287,7 @@ export class AgentRuntime {
       const existing = await sessionRepository.findExecutionByTurn(input.TurnUUID);
       if (existing) return this.resolveExistingTurn(input, existing, payloadHash);
 
-      session = await sessionRepository.findByProcessLine(input.IdCompany, input.IdProcessLine);
+      session = await sessionRepository.findByProcessLine(input.IdProcessLine);
       if (!session) {
         if (!this.options.registry.hasHostedAgent(input.Agent)) return turnFailure(input, ErrorCodes.AgentNotFound, `Agent '${input.Agent}' não encontrado.`);
         const configuration = input.AgentConfiguration ?? (input.Agent === 'reception-agent' ? DEFAULT_RECEPTION_AGENT_CONFIGURATION : null);
@@ -308,14 +321,19 @@ export class AgentRuntime {
         RequestedAgent: session.RootAgent,
         Message: input.Messages.map((message) => message.Text).join('\n'),
         ExpectedOutputJSON: null,
-        RuntimeConfigJSON: json({ Model: this.options.model, MCPServer: this.options.mcpServerName ?? 'msg4-mcp', Mode: 'AIDocument' }),
+        RuntimeConfigJSON: json({
+          Model: this.options.model,
+          MCPServer: this.options.mcpServerName ?? 'msg4-mcp',
+          Mode: 'AIDocument',
+          ...(this.options.tenantScope ? { Tenant: { CompanyUUID: this.options.tenantScope.CompanyUUID, IdDatabase: this.options.tenantScope.IdDatabase } } : {}),
+        }),
         Success: 'N',
         OpenAITraceId: openAITraceId,
         StartedAt: new Date(startedAt),
       };
       const executionId = await this.options.repository.createExecution(execution);
-      const logger = new ExecutionLogger(this.options.repository, executionId);
-      const context = createAIDocumentRuntimeContext(input, executionUUID, session.SessionUUID);
+      const logger = new ExecutionLogger(this.options.repository, executionId, this.options.tenantScope);
+      const context = createAIDocumentRuntimeContext(input, executionUUID, session.SessionUUID, this.options.tenantScope);
       this.options.observability.register(context, logger);
       try {
         await logger.runtimeStart();
@@ -361,6 +379,8 @@ export class AgentRuntime {
           processContextRevision: input.ProcessContextRevision ?? 0,
           activationUUID: input.ActivationContext?.ActivationUUID,
           rootAgent: session.RootAgent,
+          companyUUID: this.options.tenantScope?.CompanyUUID,
+          idDatabase: this.options.tenantScope?.IdDatabase,
           traceId: openAITraceId,
         };
         const result = await this.options.runner.run(graph.root, turnInputItems(input), context, traceSettings, new DatabaseAgentSession(session.SessionUUID, sessionRepository, executionUUID));

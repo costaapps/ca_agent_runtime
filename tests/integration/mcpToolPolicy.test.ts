@@ -10,9 +10,10 @@ import { createToolFilter } from '../../src/runtime/ToolPolicies.js';
 describe('SDK MCP tool policy integration', () => {
   it('exposes only Flow tools to FlowAgent and only Navigation tools to NavigationAgent', async () => {
     const context = createRuntimeContext({
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       Agent: 'chat-orchestrator-poc', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789,
       Message: 'Consultar o preço do carro', ExpectedOutput: { Name: 'Intent', Description: 'Identifique.' },
-    }, 'uuid');
+    }, 'uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
     const runContext = new RunContext(context);
     const agent = { name: 'FlowAgent' } as any;
     const server = createFakeMcpServer();

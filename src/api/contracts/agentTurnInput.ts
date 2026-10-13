@@ -39,7 +39,8 @@ export const AgentContextSchema = z.object({
   CompletionCriteria: z.array(z.string().min(1)),
 }).strict();
 
-export const AgentTurnInputSchema = z.object({
+const AgentTurnInputObjectSchema = z.object({
+  CompanyUUID: z.string().uuid().transform((value) => value.toLowerCase()),
   TurnUUID: z.string().uuid(),
   Agent: z.string().min(1),
   IdCompany: z.coerce.number().int().positive(),
@@ -53,27 +54,45 @@ export const AgentTurnInputSchema = z.object({
   AgentConfiguration: AgentConfigurationSchema.nullable().default(null),
   KnowledgeConfiguration: KnowledgeConfigurationSchema.optional(),
   AgentContext: AgentContextSchema.nullable().default(null),
-}).passthrough().superRefine((value, context) => {
-  if (value.AgentConfiguration && value.AgentConfiguration.Code !== value.Agent) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['AgentConfiguration', 'Code'], message: 'AgentConfiguration.Code deve corresponder ao Agent solicitado.' });
-  }
-  if (value.TurnSource === 'MESSAGE') {
-    if (value.Messages.length === 0) {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ['Messages'], message: 'MESSAGE exige ao menos uma mensagem.' });
-    }
-    if (value.ActivationContext !== null) {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ['ActivationContext'], message: 'MESSAGE não aceita ActivationContext.' });
-    }
-  }
+}).passthrough();
 
-  if (value.TurnSource === 'ACTIVATION' && value.ActivationContext === null) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['ActivationContext'], message: 'ACTIVATION exige ActivationContext.' });
-  }
+function refineTurnInput<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
+  return schema.superRefine((value, context) => {
+    const turn = value as {
+      AgentConfiguration: { Code: string } | null;
+      Agent: string;
+      TurnSource: 'MESSAGE' | 'ACTIVATION';
+      Messages: unknown[];
+      ActivationContext: unknown;
+    };
+    if (turn.AgentConfiguration && turn.AgentConfiguration.Code !== turn.Agent) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['AgentConfiguration', 'Code'], message: 'AgentConfiguration.Code deve corresponder ao Agent solicitado.' });
+    }
+    if (turn.TurnSource === 'MESSAGE') {
+      if (turn.Messages.length === 0) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['Messages'], message: 'MESSAGE exige ao menos uma mensagem.' });
+      }
+      if (turn.ActivationContext !== null) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['ActivationContext'], message: 'MESSAGE não aceita ActivationContext.' });
+      }
+    }
 
-  if (value.TurnSource === 'ACTIVATION' && value.Messages.length > 0) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['Messages'], message: 'ACTIVATION exige Messages vazio.' });
-  }
-});
+    if (turn.TurnSource === 'ACTIVATION' && turn.ActivationContext === null) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['ActivationContext'], message: 'ACTIVATION exige ActivationContext.' });
+    }
+
+    if (turn.TurnSource === 'ACTIVATION' && turn.Messages.length > 0) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['Messages'], message: 'ACTIVATION exige Messages vazio.' });
+    }
+  });
+}
+
+export const AgentTurnInputSchema = refineTurnInput(AgentTurnInputObjectSchema);
+
+/** Internal runtime parsing remains usable by unit-level callers; HTTP controllers use the required CompanyUUID schema above. */
+export const AgentTurnRuntimeInputSchema = refineTurnInput(AgentTurnInputObjectSchema.extend({
+  CompanyUUID: z.string().uuid().transform((value) => value.toLowerCase()).optional(),
+}));
 
 export type AgentTurnMessage = z.infer<typeof AgentTurnMessageSchema>;
 export type TurnSource = z.infer<typeof TurnSourceSchema>;
@@ -82,6 +101,7 @@ export type ActivationContext = z.infer<typeof ActivationContextSchema>;
 export type AgentConfiguration = z.output<typeof AgentConfigurationSchema>;
 export type AgentContext = z.output<typeof AgentContextSchema>;
 export interface AgentTurnInput {
+  CompanyUUID?: string;
   TurnUUID: string;
   Agent: string;
   IdCompany: number;

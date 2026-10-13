@@ -86,9 +86,10 @@ describe('ObjectDescription through Root -> FlowAgent -> MCP', () => {
   ])('delivers $label to the model before forming Input.Value', async ({ guidance, value }) => {
     const { server, calls, description } = promptServer(guidance);
     const context = createAIDocumentRuntimeContext({
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       TurnUUID: '14ed24ea-0000-4000-8000-000000000401', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
       Messages: [{ IdMessage: 1001, Text: 'Informar o código abc123.' }],
-    }, 'execution-test', 'session-test');
+    }, 'execution-test', 'session-test', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
     const repository = new MemoryRepository();
     const logger = new ExecutionLogger(repository, 1);
     const observability = new McpObservabilityRegistry();
@@ -106,7 +107,7 @@ describe('ObjectDescription through Root -> FlowAgent -> MCP', () => {
     expect(completed.finalOutput).toMatchObject({ Response: 'Código informado.', Control: { CompletionRequested: false } });
     expect(calls.mock.calls.map(([name]) => name)).toEqual(['list_flow_actions', 'describe_flow_action', 'execute_flow_action']);
     expect(calls.mock.calls[2]?.[1]).toEqual({ Action: 'inform_code', Input: { Value: value } });
-    expect(calls.mock.calls[2]?.[2]).toMatchObject({ ca: { Execution: { IdCompany: 1003, IdProcessLine: 456 } } });
+    expect(calls.mock.calls[2]?.[2]).toMatchObject({ ca: { Execution: { IdCompany: 1003, IdProcessLine: 456, CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8 } } });
     const descriptionLog = repository.logs.find((entry) => entry.data.EventType === 'MCP_TOOL_RESULT' && entry.data.ToolName === 'describe_flow_action');
     expect(JSON.parse(descriptionLog!.data.OutputJSON!).structuredContent).toEqual(description);
     expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL')).toHaveLength(3);
@@ -122,9 +123,10 @@ describe.skipIf(!liveEnabled)('ObjectDescription semantic interpretation with Op
     if (!process.env.OPENAI_MODEL || !process.env.OPENAI_API_KEY) throw new Error('OPENAI_MODEL e OPENAI_API_KEY são obrigatórios para testes live.');
     const { server, calls } = promptServer(guidance);
     const context = createAIDocumentRuntimeContext({
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       TurnUUID: '14ed24ea-0000-4000-8000-000000000402', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
       Messages: [{ IdMessage: 1002, Text: task }],
-    }, 'execution-live', 'session-live');
+    }, 'execution-live', 'session-live', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
     const runner = new Runner({ tracingDisabled: true });
     const completed = await runner.run(createFlowAgent(server, process.env.OPENAI_MODEL), `Task: ${task}`, { context, maxTurns: 8 });
     expect(completed.finalOutput?.Status).toBe('COMPLETED');

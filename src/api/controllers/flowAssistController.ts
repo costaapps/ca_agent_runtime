@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { FlowAssistInputSchema } from '../contracts/flowAssistInput.js';
 import type { FlowAssistRuntime } from '../../runtime/FlowAssistRuntime.js';
 import { ErrorCodes } from '../../errors/errorCodes.js';
+import { getTenantHttpError } from '../tenantErrors.js';
 
 export function createFlowAssistController(runtime: Pick<FlowAssistRuntime, 'runFlowAssist'>) {
   return async function flowAssistController(request: Request, response: Response): Promise<void> {
@@ -12,7 +13,20 @@ export function createFlowAssistController(runtime: Pick<FlowAssistRuntime, 'run
         : { Success: false, Proposals: [], Error: { Code: ErrorCodes.InvalidRequest, Message: 'Payload inválido.' } });
       return;
     }
-    const result = await runtime.runFlowAssist(parsed.data);
-    response.status(result.statusCode).json(result.response);
+    try {
+      const result = await runtime.runFlowAssist(parsed.data);
+      response.status(result.statusCode).json(result.response);
+    } catch (error) {
+      const tenantError = getTenantHttpError(error);
+      if (tenantError) {
+        response.status(tenantError.statusCode).json(parsed.data.Mode === 'CHECK'
+          ? { Success: false, Mode: 'CHECK', Results: [], Error: { Code: tenantError.code, Message: tenantError.message } }
+          : { Success: false, Proposals: [], Error: { Code: tenantError.code, Message: tenantError.message } });
+        return;
+      }
+      response.status(500).json(parsed.data.Mode === 'CHECK'
+        ? { Success: false, Mode: 'CHECK', Results: [], Error: { Code: ErrorCodes.AgentRuntimeError, Message: 'Não foi possível concluir o Agent Assist.' } }
+        : { Success: false, Proposals: [], Error: { Code: ErrorCodes.AgentRuntimeError, Message: 'Não foi possível concluir o Agent Assist.' } });
+    }
   };
 }

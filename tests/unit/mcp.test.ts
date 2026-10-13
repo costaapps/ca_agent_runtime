@@ -9,9 +9,10 @@ import { ExecutionLogger } from '../../src/tracing/ExecutionLogger.js';
 
 function makeContext() {
   return createRuntimeContext({
+    CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
     Agent: 'chat-orchestrator-poc', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789,
     Message: 'Olá', ExpectedOutput: { Name: 'Intent', Description: 'Identifique.' },
-  }, 'uuid');
+  }, 'uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
 }
 
 describe('MCP context integration', () => {

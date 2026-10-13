@@ -17,9 +17,10 @@ const mission = {
 
 function buildSales(knowledge = false) {
   const runtimeContext = createAIDocumentRuntimeContext({
+    CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
     TurnUUID: '14ed24ea-0000-4000-8000-000000000201', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
     Messages: [{ IdMessage: 1001, Text: 'Manda pela Jadlog.' }],
-  }, 'execution-uuid', 'session-uuid');
+  }, 'execution-uuid', 'session-uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
   const graph = new AgentRegistry().buildAIDocument('sales-agent', {
     mcpServer: createFakeMcpServer(), model: 'test-model', runtimeContext,
     logger: new ExecutionLogger(new MemoryRepository(), 1),

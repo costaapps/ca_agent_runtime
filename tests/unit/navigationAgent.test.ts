@@ -11,13 +11,14 @@ import { createFakeMcpServer } from '../../src/mcp/fakeMcpServer.js';
 
 function makeContext() {
   return createAIDocumentRuntimeContext({
+    CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
     TurnUUID: '14ed24ea-0000-4000-8000-000000000030',
     Agent: 'sales-agent',
     IdCompany: 1001,
     IdChat: 2001,
     IdProcessLine: 3001,
     Messages: [{ IdMessage: 1, Text: 'Quero comprar memória RAM.' }],
-  }, 'execution-uuid', 'session-uuid');
+  }, 'execution-uuid', 'session-uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1001 });
 }
 
 function listResult(...destinations: Array<Record<string, unknown>>) {

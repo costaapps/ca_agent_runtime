@@ -21,6 +21,14 @@ describe('Agent turn identity', () => {
     expect(hashTurnPayload(changed)).not.toBe(hashTurnPayload(baseTurn));
   });
 
+  it('excludes tenant routing fields from the functional idempotency hash', () => {
+    const scoped = { ...baseTurn, CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8 };
+    const rerouted = { ...scoped, CompanyUUID: 'd2719f62-8a67-4fd5-a6ae-411a6a3ef177', IdDatabase: 19 };
+    expect(canonicalTurnPayload(scoped)).not.toContain('CompanyUUID');
+    expect(canonicalTurnPayload(scoped)).not.toContain('IdDatabase');
+    expect(hashTurnPayload(rerouted)).toBe(hashTurnPayload(scoped));
+  });
+
   it('includes activation source and context in the idempotency payload', () => {
     const activation = {
       ...baseTurn,

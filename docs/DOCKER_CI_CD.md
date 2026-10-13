@@ -9,6 +9,9 @@ dependências de produção pelo lockfile, incluindo dependências opcionais
 necessárias ao cliente MCP. O estágio final aplica as atualizações de segurança
 disponíveis no Debian e remove os gerenciadores npm, Corepack e Yarn, usados
 somente durante o build.
+Como a atualização APT acompanha os repositórios no momento do build, uma
+reconstrução futura do mesmo commit pode conter pacotes de sistema diferentes.
+Cada release registra e publica o digest exato da imagem que passou pelos gates.
 
 A mesma imagem serve a API e o executor administrativo de migrations:
 

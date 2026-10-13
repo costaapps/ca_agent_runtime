@@ -31,7 +31,9 @@ docker compose -f deploy/compose.agent-runtime.yml run --rm --no-deps \
 
 O Compose de referência consome uma imagem por digest, mantém uma instância,
 recebe configuração de fora do container, limita a rotação de logs e concede
-130 segundos para encerramento gracioso.
+130 segundos para encerramento gracioso. Por padrão, ele lê
+`agent-runtime.env` ao lado do repositório; ajuste `AGENT_RUNTIME_ENV_FILE`
+para o caminho do arquivo de configuração que o host usa.
 
 ## Gates de CI
 
@@ -62,6 +64,22 @@ No repositório, configure:
 
 O token fica disponível somente no job de publicação. Workflows usam permissões
 mínimas, Actions fixadas por SHA e concorrência para serializar releases.
+
+Antes da primeira publicação, configure o repositório `ca` no Docker Hub para
+deixar imutáveis somente as tags do AgentRuntime, usando as regras:
+
+```text
+^agent-runtime-[0-9]+\.[0-9]+\.[0-9]+$
+^agent-runtime-sha-[0-9a-f]{40}$
+```
+
+O preflight do workflow reutiliza tags existentes com labels e digest
+compatíveis, mas não consegue impedir sozinho uma escrita concorrente externa
+entre a leitura da tag e o `push`. A imutabilidade no registry fecha essa
+janela; a documentação do Docker Hub descreve essa configuração como recurso
+beta ([imutabilidade de tags](https://docs.docker.com/docker-hub/repos/manage/hub-images/immutable-tags/)).
+Se ela não estiver disponível para o repositório, restrinja escrita às
+publicações serializadas deste workflow antes de ativar releases.
 
 Configure uma regra de proteção para `main` que exija pull request e a
 conclusão dos gates de CI. Proteja tags `v*` contra exclusão e alteração depois

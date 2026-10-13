@@ -28,8 +28,11 @@ Linux que já recebeu os valores de um cofre de segredos:
 ```sh
 docker compose -f deploy/compose.agent-runtime.yml run --rm --no-deps \
   -e MIGRATION_DB_USER -e MIGRATION_DB_PASSWORD \
-  agent-runtime npm run db:migrate:prod -- --company-uuid "$COMPANY_UUID"
+  agent-runtime node dist/src/database/migrate.js --company-uuid "$COMPANY_UUID"
 ```
+
+O comando dentro da imagem usa diretamente o executor compilado, pois a imagem
+final não contém gerenciadores de pacotes.
 
 O Compose de referência consome uma imagem por digest, mantém uma instância,
 recebe configuração de fora do container, limita a rotação de logs e concede

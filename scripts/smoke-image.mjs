@@ -129,6 +129,15 @@ function verifyImageContents() {
   run('docker', ['run', '--rm', '--platform', 'linux/amd64', '--entrypoint', 'node', image, '-e', check]);
 }
 
+function verifyImageMigrationCommand() {
+  run('docker', [
+    'run', '--rm', '--platform', 'linux/amd64', '--env-file', envFile,
+    '--env', `MIGRATION_DB_USER=${process.env.SMOKE_DB_ADMIN_USER}`,
+    '--env', `MIGRATION_DB_PASSWORD=${process.env.SMOKE_DB_ADMIN_PASSWORD}`,
+    image, 'node', 'dist/src/database/migrate.js', '--company-uuid', tenantAUUID,
+  ]);
+}
+
 async function reserveLocalPort() {
   const server = createServer();
   await new Promise((resolve, reject) => {
@@ -237,6 +246,7 @@ function startContainer(port) {
 
 async function main() {
   verifyImageContents();
+  verifyImageMigrationCommand();
   const port = await reserveLocalPort();
   const baseURL = `http://127.0.0.1:${port}`;
   let connection;

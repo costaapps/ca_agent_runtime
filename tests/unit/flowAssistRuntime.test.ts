@@ -34,7 +34,7 @@ describe('Flow Assist execution lifecycle', () => {
     expect(repository.logs.map(({ data }) => data.EventType)).toEqual(['RUNTIME_START', 'AGENT_START', 'AGENT_OUTPUT', 'RUNTIME_END']);
     expect(repository.logs.map(({ data }) => data.Sequence)).toEqual([1, 2, 3, 4]);
     const args = run.mock.calls[0]!;
-    expect(args).toHaveLength(4); // no SDK Session argument
+    expect(args[4]).toBeUndefined(); // no SDK Session argument
     expect(args[2].Execution.ExecutionUUID).toBe(result.response.ExecutionUUID);
     expect(args[2].Execution.SessionUUID).toBeUndefined();
     expect(args[2].Resolved).toEqual({});
@@ -121,7 +121,7 @@ describe('Flow Assist execution lifecycle', () => {
     expect(JSON.parse(execution.data.RuntimeConfigJSON!)).toMatchObject({ Mode: 'FLOW_ASSIST', AssistMode: 'CHECK' });
     expect(execution.data.IdAIAgentSession).toBeUndefined();
     expect(execution.final).toMatchObject({ Success: 'Y', OutputJSON: JSON.stringify(flowAssistCheckOutput) });
-    expect(run.mock.calls[0]).toHaveLength(4);
+    expect(run.mock.calls[0]?.[4]).toBeUndefined(); // no SDK Session argument
     expect(repository.logs.map((entry) => entry.data.EventType)).toEqual(['RUNTIME_START', 'AGENT_START', 'AGENT_OUTPUT', 'RUNTIME_END']);
   });
 

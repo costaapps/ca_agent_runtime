@@ -1,4 +1,5 @@
 import type { AiExecutionRepository, ExecutionLogRecord } from '../database/repositories/aiExecutionRepository.js';
+import { asDatabaseRuntimeError } from '../errors/RuntimeError.js';
 import { ExecutionEventTypes, type ExecutionEventType } from './eventTypes.js';
 import type { TenantTraceIdentity } from '../runtime/TenantScope.js';
 
@@ -27,7 +28,11 @@ export class ExecutionLogger {
       EventType: event,
       ...data,
     };
-    await this.repository.appendLog(this.executionId, record);
+    try {
+      await this.repository.appendLog(this.executionId, record);
+    } catch (error) {
+      throw asDatabaseRuntimeError(error);
+    }
   }
 
   /**

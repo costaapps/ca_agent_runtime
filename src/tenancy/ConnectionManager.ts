@@ -3,7 +3,7 @@ import mysql, { type Pool } from 'mysql2/promise';
 import { drizzle } from 'drizzle-orm/mysql2';
 import * as schema from '../database/schema/index.js';
 import type { RuntimeDatabase } from '../database/connection.js';
-import type { TenantDatabaseConfig, TenantDescriptor } from './TenantDescriptor.js';
+import { TENANT_DESCRIPTOR_REGISTRY_VERSION, type TenantDatabaseConfig, type TenantDescriptor } from './TenantDescriptor.js';
 import { TenantError, TenantErrorCodes } from './TenantError.js';
 
 interface PoolLike {
@@ -49,6 +49,12 @@ interface PendingGeneration {
   promise: Promise<PoolGeneration>;
 }
 
+interface DesiredConfiguration {
+  readonly fingerprint: string;
+  readonly registryVersion?: number;
+  readonly requestOrder: number;
+}
+
 const DEFAULT_CONNECTION_LIMIT = 8;
 const DEFAULT_MAX_POOLS = 32;
 const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
@@ -62,13 +68,14 @@ export class TenantConnectionManager {
   private readonly generations = new Set<PoolGeneration>();
   private readonly pending = new Map<string, PendingGeneration>();
   private readonly reservations = new Set<symbol>();
-  private readonly desiredFingerprintByDatabase = new Map<number, string>();
+  private readonly desiredConfigurationByDatabase = new Map<number, DesiredConfiguration>();
   private readonly now: () => number;
   private readonly connectionLimit: number;
   private readonly maxPools: number;
   private readonly idleTimeoutMs: number;
   private readonly createHandle: NonNullable<TenantConnectionManagerOptions['createHandle']>;
   private readonly emptyWaiters = new Set<() => void>();
+  private acquireSequence = 0;
   private capacityTail: Promise<void> = Promise.resolve();
   private readonly sweepTimer?: ReturnType<typeof setInterval>;
   private closed = false;
@@ -105,9 +112,18 @@ export class TenantConnectionManager {
 
     const fingerprint = connectionFingerprint(descriptor.database);
     const databaseId = descriptor.IdDatabase;
-    // The most recently resolved configuration wins publication. Older requests can
-    // still finish on their own generation, which is retired after their leases drain.
-    this.desiredFingerprintByDatabase.set(databaseId, fingerprint);
+    // Registry resolution order, rather than arrival order at this manager, decides
+    // which configuration may become current. A stale resolution still gets its
+    // frozen descriptor and can finish on a retiring generation under its lease.
+    const requested: DesiredConfiguration = {
+      fingerprint,
+      registryVersion: descriptor[TENANT_DESCRIPTOR_REGISTRY_VERSION],
+      requestOrder: ++this.acquireSequence,
+    };
+    const desired = this.desiredConfigurationByDatabase.get(databaseId);
+    if (!desired || isAtLeastAsNew(requested, desired)) {
+      this.desiredConfigurationByDatabase.set(databaseId, requested);
+    }
 
     const current = this.currentByDatabase.get(databaseId);
     if (current && !current.retiring && current.fingerprint === fingerprint) {
@@ -246,7 +262,7 @@ export class TenantConnectionManager {
     pending.generation = generation;
     this.generations.add(generation);
 
-    if (this.desiredFingerprintByDatabase.get(descriptor.IdDatabase) === fingerprint) {
+    if (this.desiredConfigurationByDatabase.get(descriptor.IdDatabase)?.fingerprint === fingerprint) {
       const previous = this.currentByDatabase.get(descriptor.IdDatabase);
       this.currentByDatabase.set(descriptor.IdDatabase, generation);
       if (previous && previous !== generation) this.retireWithoutWaiting(previous);
@@ -364,6 +380,18 @@ export class TenantConnectionManager {
 function connectionFingerprint(config: TenantDatabaseConfig): string {
   const canonical = JSON.stringify([config.host, config.port, config.database, config.user, config.password]);
   return createHash('sha256').update(canonical).digest('hex');
+}
+
+function isAtLeastAsNew(candidate: DesiredConfiguration, current: DesiredConfiguration): boolean {
+  if (candidate.registryVersion !== undefined && current.registryVersion !== undefined) {
+    if (candidate.registryVersion === current.registryVersion) {
+      return candidate.fingerprint === current.fingerprint;
+    }
+    return candidate.registryVersion > current.registryVersion;
+  }
+  if (candidate.registryVersion !== undefined) return true;
+  if (current.registryVersion !== undefined) return false;
+  return candidate.requestOrder >= current.requestOrder;
 }
 
 function defaultCreateHandle(config: TenantDatabaseConfig, connectionLimit: number): TenantDatabaseHandle {

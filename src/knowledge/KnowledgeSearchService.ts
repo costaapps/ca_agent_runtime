@@ -20,7 +20,7 @@ export class KnowledgeSearchService {
     if (!reference) throw new Error('KNOWLEDGE_REFERENCE_NOT_AUTHORIZED');
     const connection = snapshot.Connections.find((item) => item.Code === reference.ConnectionCode);
     if (!connection) throw new Error('KNOWLEDGE_CONNECTION_NOT_FOUND');
-    const credential = this.credentials.resolve(connection);
+    const credential = await this.credentials.resolve(connection);
     const options = { MaxResults: 5, ...reference.SearchOptions };
     let results: KnowledgeSearchResult[];
     try {

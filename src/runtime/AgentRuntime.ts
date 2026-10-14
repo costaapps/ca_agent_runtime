@@ -24,7 +24,7 @@ import { DatabaseAgentSession } from '../session/DatabaseAgentSession.js';
 import { canonicalTurnInput, hashLegacyTurnPayload, hashPreAgentContextTurnPayload, hashPreKnowledgeTurnPayload, hashTurnPayload } from './TurnIdentity.js';
 import { SessionMutex } from './SessionMutex.js';
 import { KnowledgeSearchService } from '../knowledge/KnowledgeSearchService.js';
-import { EnvironmentProviderCredentialResolver } from '../knowledge/credentials/EnvironmentProviderCredentialResolver.js';
+import { TenantOpenAICredentialResolver } from '../knowledge/credentials/TenantOpenAICredentialResolver.js';
 import { OpenAIKnowledgeSearchProvider } from '../knowledge/providers/OpenAIKnowledgeSearchProvider.js';
 import { FlowAssistRuntime, type FlowAssistRuntimeResult } from './FlowAssistRuntime.js';
 import type { FlowAssistInput } from '../api/contracts/flowAssistInput.js';
@@ -45,6 +45,7 @@ export interface AgentRuntimeOptions {
   activeTurns?: Map<string, string>;
   tenantScope?: TenantScope;
   knowledgeSearchService?: KnowledgeSearchService;
+  resolveOpenAIKey?: () => Promise<string>;
 }
 
 export interface AgentRuntimeRunResult {
@@ -148,16 +149,19 @@ export class AgentRuntime {
   private readonly sessionMutex: SessionMutex;
   private readonly activeTurns: Map<string, string>;
   private readonly knowledgeSearchService: KnowledgeSearchService;
+  private readonly resolveOpenAIKey: () => Promise<string>;
 
   constructor(private readonly options: AgentRuntimeOptions) {
+    this.resolveOpenAIKey = options.resolveOpenAIKey ?? (async () => { throw new Error('OPENAI_CREDENTIAL_NOT_CONFIGURED'); });
     this.knowledgeSearchService = options.knowledgeSearchService ?? new KnowledgeSearchService(
-      new OpenAIKnowledgeSearchProvider(), new EnvironmentProviderCredentialResolver(),
+      new OpenAIKnowledgeSearchProvider(), new TenantOpenAICredentialResolver(this.resolveOpenAIKey),
     );
     this.flowAssistRuntime = new FlowAssistRuntime({
       repository: options.repository, registry: options.registry, runner: options.runner,
       model: options.model, tracingEnabled: options.tracingEnabled, traceIncludeSensitiveData: options.traceIncludeSensitiveData,
       knowledgeSearchService: this.knowledgeSearchService,
       tenantScope: options.tenantScope,
+      resolveOpenAIKey: this.resolveOpenAIKey,
     });
     this.sessionMutex = options.sessionMutex ?? new SessionMutex();
     this.activeTurns = options.activeTurns ?? new Map<string, string>();
@@ -225,7 +229,7 @@ export class AgentRuntime {
         idDatabase: this.options.tenantScope?.IdDatabase,
         traceId: openAITraceId,
       };
-      const result = await this.options.runner.run(graph.root, input.Message, context, traceSettings);
+      const result = await this.options.runner.run(graph.root, input.Message, context, traceSettings, undefined, this.resolveOpenAIKey);
       await logger.flushLifecycleWrites();
       const output = resolveOutput(result.finalOutput, compiled);
       const finalAgent = result.lastAgent?.name ?? 'ChatOrchestrator';
@@ -413,7 +417,7 @@ export class AgentRuntime {
           idDatabase: this.options.tenantScope?.IdDatabase,
           traceId: openAITraceId,
         };
-        const result = await this.options.runner.run(graph.root, turnInputItems(input), context, traceSettings, new DatabaseAgentSession(session.SessionUUID, sessionRepository, executionUUID));
+        const result = await this.options.runner.run(graph.root, turnInputItems(input), context, traceSettings, new DatabaseAgentSession(session.SessionUUID, sessionRepository, executionUUID), this.resolveOpenAIKey);
         await logger.flushLifecycleWrites();
         let output;
         try {

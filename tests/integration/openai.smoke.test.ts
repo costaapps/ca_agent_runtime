@@ -17,6 +17,11 @@ describe.skipIf(!enabled)('OpenAI smoke test', () => {
       repository,
       registry: new AgentRegistry(),
       runner: createOpenAIRunner(),
+      resolveOpenAIKey: async () => {
+        const key = process.env.OPENAI_API_KEY;
+        if (!key) throw new Error('OPENAI_API_KEY é obrigatório para o smoke test live.');
+        return key;
+      },
       mcpServer: createFakeMcpServer(),
       observability: new McpObservabilityRegistry(),
       model,

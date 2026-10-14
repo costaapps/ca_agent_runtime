@@ -23,6 +23,7 @@ export const ErrorCodes = {
   TenantRegistryUnavailable: 'TENANT_REGISTRY_UNAVAILABLE',
   TenantDatabaseUnavailable: 'TENANT_DATABASE_UNAVAILABLE',
   TenantPoolUnavailable: 'TENANT_POOL_UNAVAILABLE',
+  OpenAICredentialNotConfigured: 'OPENAI_CREDENTIAL_NOT_CONFIGURED',
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];

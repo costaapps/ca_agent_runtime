@@ -25,6 +25,7 @@ export interface FlowAssistRuntimeOptions {
   traceIncludeSensitiveData: boolean;
   knowledgeSearchService: KnowledgeSearchService;
   tenantScope?: TenantScope;
+  resolveOpenAIKey?: () => Promise<string>;
 }
 
 export interface FlowAssistRuntimeResult {
@@ -134,7 +135,7 @@ export class FlowAssistRuntime {
         companyUUID: this.options.tenantScope?.CompanyUUID,
         idDatabase: this.options.tenantScope?.IdDatabase,
         traceId,
-      }).catch((error: unknown) => {
+      }, undefined, this.options.resolveOpenAIKey).catch((error: unknown) => {
         // The SDK parses outputType before returning finalOutput. Preserve the
         // same protocol error when validation happens there (also redacted).
         if (error instanceof ZodError || error instanceof ModelBehaviorError) {

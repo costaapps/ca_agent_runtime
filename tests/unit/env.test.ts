@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { loadEnv } from '../../src/config/env.js';
 
 const baseEnv = {
-  OPENAI_API_KEY: 'test-key',
   OPENAI_MODEL: 'test-model',
   MCP_SERVER_URL: 'http://localhost:3102/mcp',
   CENTRAL_DB_HOST: 'localhost',
@@ -13,9 +12,15 @@ const baseEnv = {
 };
 
 describe('Runtime environment configuration', () => {
-  it('does not require a Reception-specific Vector Store', () => {
-    expect(loadEnv(baseEnv).OPENAI_API_KEY).toBe('test-key');
+  it('uses a global model default without requiring a global API key', () => {
+    expect(loadEnv(baseEnv).OPENAI_MODEL).toBe('test-model');
+    expect(loadEnv(baseEnv)).not.toHaveProperty('OPENAI_API_KEY');
     expect(loadEnv(baseEnv)).not.toHaveProperty('RECEPTION_AGENT_VECTOR_STORE_IDS');
+  });
+
+  it('continues to require the global model setting', () => {
+    const { OPENAI_MODEL: _model, ...withoutModel } = baseEnv;
+    expect(() => loadEnv(withoutModel)).toThrow();
   });
 
   it('requires a non-empty unique allowlist and normalizes UUIDs', () => {

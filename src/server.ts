@@ -15,6 +15,7 @@ import { TenantConnectionManager } from './tenancy/ConnectionManager.js';
 import type { TenantDescriptor } from './tenancy/TenantDescriptor.js';
 import { TenantRuntimeGateway } from './api/TenantRuntimeGateway.js';
 import type { RuntimeDatabase } from './database/connection.js';
+import { createTenantOpenAIKeyResolver } from './database/repositories/tenantOpenAIKeyRepository.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
     sessionRepository: new DrizzleAgentSessionRepository(database, tenant.IdCompany),
     registry: new AgentRegistry(),
     runner,
+    resolveOpenAIKey: createTenantOpenAIKeyResolver(database, tenant.IdCompany),
     mcpServer: mcp.server,
     observability,
     model: env.OPENAI_MODEL,

@@ -26,7 +26,6 @@ const TenantAllowlistSchema = z.string().transform((value, context) => {
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3101),
   NODE_ENV: z.string().default('development'),
-  OPENAI_API_KEY: z.string().min(1),
   OPENAI_MODEL: z.string().min(1),
   OPENAI_TRACING_ENABLED: z.enum(['true', 'false']).default('true'),
   OPENAI_TRACE_INCLUDE_SENSITIVE_DATA: z.enum(['true', 'false']).default('false'),
@@ -49,7 +48,6 @@ const EnvSchema = z.object({
 export interface RuntimeEnv {
   PORT: number;
   NODE_ENV: string;
-  OPENAI_API_KEY: string;
   OPENAI_MODEL: string;
   OPENAI_TRACING_ENABLED: boolean;
   OPENAI_TRACE_INCLUDE_SENSITIVE_DATA: boolean;

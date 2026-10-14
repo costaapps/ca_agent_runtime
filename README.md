@@ -118,6 +118,8 @@ Configure `CENTRAL_DB_HOST`, `CENTRAL_DB_PORT`, `CENTRAL_DB_NAME`, `CENTRAL_DB_U
 
 O descriptor resolvido congela `CompanyUUID`, `IdDatabase` e `IdCompany` para a execução. A fronteira de identidade usa hoje o `CompanyUUID` da requisição por meio de `RequestTenantIdentityResolver`, que pode ser substituído por uma integração de autenticação futura. Cada operação mantém um lease de pool durante espera por Session, inferência, ferramentas, persistência e logs. Empresas na mesma base compartilham pool por `IdDatabase`, enquanto repositories filtram pelo `IdCompany`. A coordenação de Session e Turn é compartilhada dentro do processo Node; esta versão pressupõe uma instância do Runtime.
 
+As gravações de lifecycle iniciadas pelos eventos do Agents SDK são rastreadas e concluídas antes de o Runtime responder e liberar o lease; falhas geram somente um diagnóstico sanitizado. Falhas de conectividade em operações de persistência retornam HTTP 503 com `TENANT_DATABASE_UNAVAILABLE`; erros de schema ou integridade mantêm `PERSISTENCE_ERROR`/500, sem expor SQL, parâmetros ou credenciais. Versões internas das resoluções do Registry impedem consultas antigas de promover uma geração obsoleta: a execução já aceita pode terminar com seu descriptor congelado enquanto novas chamadas continuam na geração atual.
+
 O MCP segue como endpoint compartilhado. Chamadas habilitadas recebem `CompanyUUID` e `IdDatabase` em `_meta.ca.Execution`; o MCP real precisa adotar o roteamento por esses campos, e o Core precisa enviar `CompanyUUID`. A resolução de identidade ainda usa o UUID do corpo e a allowlist configurada; autenticação fica para uma etapa posterior.
 
 Executar migration em uma empresa específica usa credenciais administrativas fornecidas apenas para o comando:

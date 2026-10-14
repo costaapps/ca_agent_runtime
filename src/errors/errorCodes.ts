@@ -21,6 +21,7 @@ export const ErrorCodes = {
   TenantNotFound: 'TENANT_NOT_FOUND',
   TenantRegistryConflict: 'TENANT_REGISTRY_CONFLICT',
   TenantRegistryUnavailable: 'TENANT_REGISTRY_UNAVAILABLE',
+  TenantDatabaseUnavailable: 'TENANT_DATABASE_UNAVAILABLE',
   TenantPoolUnavailable: 'TENANT_POOL_UNAVAILABLE',
 } as const;
 

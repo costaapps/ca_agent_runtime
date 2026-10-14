@@ -3,7 +3,7 @@ import { AgentSessionCloseInputSchema } from '../contracts/agentSessionClose.js'
 import type { AgentRuntime } from '../../runtime/AgentRuntime.js';
 import { RuntimeError } from '../../errors/RuntimeError.js';
 import { ErrorCodes } from '../../errors/errorCodes.js';
-import { getTenantHttpError } from '../tenantErrors.js';
+import { getRuntimeHttpError } from '../tenantErrors.js';
 
 export function createAgentSessionController(runtime: Pick<AgentRuntime, 'closeSession'>) {
   return async function agentSessionController(request: Request, response: Response): Promise<void> {
@@ -16,9 +16,9 @@ export function createAgentSessionController(runtime: Pick<AgentRuntime, 'closeS
       const result = await runtime.closeSession(parsed.data);
       response.status(result.statusCode).json(result.response);
     } catch (error) {
-      const tenantError = getTenantHttpError(error);
-      if (tenantError) {
-        response.status(tenantError.statusCode).json({ Success: false, Error: { Code: tenantError.code, Message: tenantError.message } });
+      const runtimeHttpError = getRuntimeHttpError(error);
+      if (runtimeHttpError) {
+        response.status(runtimeHttpError.statusCode).json({ Success: false, Error: { Code: runtimeHttpError.code, Message: runtimeHttpError.message } });
         return;
       }
       const runtimeError = error instanceof RuntimeError ? error : new RuntimeError(ErrorCodes.AgentRuntimeError, 'Não foi possível fechar a Session.', error);

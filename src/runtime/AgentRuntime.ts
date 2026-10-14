@@ -6,7 +6,7 @@ import type { AgentSessionCloseInput, AgentSessionCloseOutput } from '../api/con
 import { AgentConfigurationSchema, type AgentConfiguration, AgentTurnRuntimeInputSchema, type AgentTurnInput } from '../api/contracts/agentTurnInput.js';
 import { KnowledgeConfigurationSchema, effectiveKnowledgeConfiguration, type KnowledgeConfiguration } from '../api/contracts/knowledgeConfiguration.js';
 import { AIDocumentRootOutputSchema, type AgentTurnFailure, type AgentTurnOutput, type AgentTurnSuccess } from '../api/contracts/agentTurnOutput.js';
-import { AgentNotFoundError, RuntimeError, asRuntimeError } from '../errors/RuntimeError.js';
+import { AgentNotFoundError, RuntimeError, asDatabaseRuntimeError, asRuntimeError, SAFE_PERSISTENCE_ERROR_MESSAGE, SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE } from '../errors/RuntimeError.js';
 import { ErrorCodes } from '../errors/errorCodes.js';
 import { AgentRegistry, type AgentGraph } from '../agents/AgentRegistry.js';
 import type { NewAIAgentExecution } from '../database/schema/aiAgentExecution.js';
@@ -48,17 +48,17 @@ export interface AgentRuntimeOptions {
 }
 
 export interface AgentRuntimeRunResult {
-  statusCode: 200 | 500;
+  statusCode: 200 | 500 | 503;
   response: AgentRunOutput;
 }
 
 export interface AgentTurnRuntimeResult {
-  statusCode: 200 | 400 | 409 | 422 | 500;
+  statusCode: 200 | 400 | 409 | 422 | 500 | 503;
   response: AgentTurnOutput;
 }
 
 export interface AgentSessionCloseRuntimeResult {
-  statusCode: 200 | 404 | 500;
+  statusCode: 200 | 404 | 500 | 503;
   response: AgentSessionCloseOutput | {
     Success: false;
     Error: { Code: string; Message: string };
@@ -106,7 +106,9 @@ function turnFailure(
     ...(executionUUID ? { ExecutionUUID: executionUUID } : {}),
     Error: { Code: code, Message: message },
   };
-  const statusCode = code === ErrorCodes.InvalidRequest ? 400 : code === ErrorCodes.AgentNotFound ? 422 : code === ErrorCodes.TurnIdempotencyConflict || code === ErrorCodes.TurnInProgress || code === ErrorCodes.AgentSessionClosed ? 409 : 500;
+  const statusCode = code === ErrorCodes.InvalidRequest ? 400 : code === ErrorCodes.AgentNotFound ? 422
+    : code === ErrorCodes.TurnIdempotencyConflict || code === ErrorCodes.TurnInProgress || code === ErrorCodes.AgentSessionClosed ? 409
+      : code === ErrorCodes.TenantDatabaseUnavailable || code === ErrorCodes.TenantPoolUnavailable ? 503 : 500;
   return { statusCode, response };
 }
 
@@ -194,7 +196,7 @@ export class AgentRuntime {
 
     let executionId: number;
     try { executionId = await this.options.repository.createExecution(execution); }
-    catch (error) { throw asRuntimeError(error, ErrorCodes.PersistenceError); }
+    catch (error) { throw asDatabaseRuntimeError(error); }
 
     const logger = new ExecutionLogger(this.options.repository, executionId, this.options.tenantScope);
     const context = createRuntimeContext(input, executionUUID, this.options.tenantScope);
@@ -229,7 +231,9 @@ export class AgentRuntime {
       const finalAgent = result.lastAgent?.name ?? 'ChatOrchestrator';
       await logger.agentOutput(finalAgent, output);
       const durationMs = durationSince(startedAt);
-      await this.options.repository.finishExecution(executionId, { FinalAgent: finalAgent, Success: 'Y', OutputJSON: json(output), FinishedAt: new Date(), DurationMs: durationMs });
+      try {
+        await this.options.repository.finishExecution(executionId, { FinalAgent: finalAgent, Success: 'Y', OutputJSON: json(output), FinishedAt: new Date(), DurationMs: durationMs });
+      } catch (error) { throw asDatabaseRuntimeError(error); }
       await logger.runtimeEnd(durationMs);
       return { statusCode: 200, response: { Success: true, ExecutionUUID: executionUUID, Output: output } satisfies AgentRunSuccess };
     } catch (error) {
@@ -238,7 +242,21 @@ export class AgentRuntime {
       const durationMs = durationSince(startedAt);
       try { await logger.runtimeError(runtimeError.code, runtimeError.message, durationMs); } catch { /* preserve original */ }
       try { await this.options.repository.failExecution(executionId, { Success: 'N', ErrorCode: runtimeError.code, ErrorMessage: runtimeError.message, FinishedAt: new Date(), DurationMs: durationMs }); } catch { /* preserve original */ }
-      return { statusCode: 500, response: { Success: false, ExecutionUUID: executionUUID, Output: null, Error: { Code: runtimeError.code, Message: 'Não foi possível concluir a execução.' } } };
+      const unavailable = runtimeError.code === ErrorCodes.TenantDatabaseUnavailable || runtimeError.code === ErrorCodes.TenantPoolUnavailable;
+      const persistenceFailure = runtimeError.code === ErrorCodes.PersistenceError;
+      return {
+        statusCode: unavailable ? 503 : 500,
+        response: {
+          Success: false,
+          ExecutionUUID: executionUUID,
+          Output: null,
+          Error: {
+            Code: runtimeError.code,
+            Message: unavailable ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE
+              : persistenceFailure ? SAFE_PERSISTENCE_ERROR_MESSAGE : 'Não foi possível concluir a execução.',
+          },
+        },
+      };
     } finally {
       await logger.flushLifecycleWrites();
       this.options.observability.unregister(context);
@@ -278,8 +296,18 @@ export class AgentRuntime {
         if (!session) return { statusCode: 404, response: { Success: false, Error: { Code: ErrorCodes.AgentSessionNotFound, Message: 'Session não encontrada.' } } };
         return { statusCode: 200, response: { Success: true, SessionUUID: session.SessionUUID, Status: 'CLOSED' } satisfies AgentSessionCloseOutput };
       } catch (error) {
-        const runtimeError = asRuntimeError(error, ErrorCodes.PersistenceError);
-        return { statusCode: 500, response: { Success: false, Error: { Code: runtimeError.code, Message: runtimeError.message } } };
+        const runtimeError = asDatabaseRuntimeError(error);
+        const unavailable = runtimeError.code === ErrorCodes.TenantDatabaseUnavailable;
+        return {
+          statusCode: unavailable ? 503 : 500,
+          response: {
+            Success: false,
+            Error: {
+              Code: runtimeError.code,
+              Message: unavailable ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE : SAFE_PERSISTENCE_ERROR_MESSAGE,
+            },
+          },
+        };
       }
     });
   }
@@ -396,8 +424,10 @@ export class AgentRuntime {
         const finalAgent = result.lastAgent?.name ?? graph.root.name;
         await logger.agentOutput(finalAgent, output);
         const durationMs = durationSince(startedAt);
-        await this.options.repository.finishExecution(executionId, { FinalAgent: finalAgent, Success: 'Y', OutputJSON: json(output), FinishedAt: new Date(), DurationMs: durationMs });
-        await sessionRepository.touchSession(session.SessionUUID);
+        try {
+          await this.options.repository.finishExecution(executionId, { FinalAgent: finalAgent, Success: 'Y', OutputJSON: json(output), FinishedAt: new Date(), DurationMs: durationMs });
+          await sessionRepository.touchSession(session.SessionUUID);
+        } catch (error) { throw asDatabaseRuntimeError(error); }
         await logger.runtimeEnd(durationMs);
         const response: AgentTurnSuccess = { Success: true, TurnUUID: input.TurnUUID, SessionUUID: session.SessionUUID, ExecutionUUID: executionUUID, Agent: session.RootAgent, Response: output.Response, Control: output.Control };
         return { statusCode: 200, response };
@@ -413,8 +443,10 @@ export class AgentRuntime {
         this.options.observability.unregister(context);
       }
     } catch (error) {
-      const runtimeError = asRuntimeError(error, ErrorCodes.PersistenceError);
-      return turnFailure(input, runtimeError.code, runtimeError.message, session?.SessionUUID);
+      const runtimeError = asDatabaseRuntimeError(error);
+      const message = runtimeError.code === ErrorCodes.TenantDatabaseUnavailable
+        ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE : SAFE_PERSISTENCE_ERROR_MESSAGE;
+      return turnFailure(input, runtimeError.code, message, session?.SessionUUID);
     }
   }
 

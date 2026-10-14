@@ -1,5 +1,7 @@
 import type { AiExecutionRepository, ExecutionLogRecord } from '../database/repositories/aiExecutionRepository.js';
+import { asDatabaseRuntimeError } from '../errors/RuntimeError.js';
 import { ExecutionEventTypes, type ExecutionEventType } from './eventTypes.js';
+import type { TenantTraceIdentity } from '../runtime/TenantScope.js';
 
 function serialize(value: unknown): string | undefined {
   if (value === undefined) return undefined;
@@ -12,10 +14,12 @@ function serialize(value: unknown): string | undefined {
 
 export class ExecutionLogger {
   private nextSequence = 1;
+  private readonly pendingLifecycleWrites = new Set<Promise<void>>();
 
   constructor(
     private readonly repository: AiExecutionRepository,
     private readonly executionId: number,
+    private readonly tenant?: TenantTraceIdentity,
   ) {}
 
   async append(event: ExecutionEventType, data: Omit<ExecutionLogRecord, 'Sequence' | 'EventType'> = {}): Promise<void> {
@@ -24,11 +28,53 @@ export class ExecutionLogger {
       EventType: event,
       ...data,
     };
-    await this.repository.appendLog(this.executionId, record);
+    try {
+      await this.repository.appendLog(this.executionId, record);
+    } catch (error) {
+      throw asDatabaseRuntimeError(error);
+    }
+  }
+
+  /**
+   * Tracks a lifecycle write started from an Agent SDK EventEmitter callback.
+   * Node's EventEmitter invokes listeners synchronously and ignores returned
+   * promises, so the Runtime must explicitly flush these writes before ending
+   * the request (and releasing its tenant database lease).
+   */
+  trackLifecycleWrite(event: ExecutionEventType, write: Promise<void>): void {
+    let trackedWrite!: Promise<void>;
+    trackedWrite = write
+      .catch(() => this.reportLifecycleWriteFailure(event))
+      .finally(() => this.pendingLifecycleWrites.delete(trackedWrite));
+    this.pendingLifecycleWrites.add(trackedWrite);
+  }
+
+  async flushLifecycleWrites(): Promise<void> {
+    while (this.pendingLifecycleWrites.size > 0) {
+      await Promise.all([...this.pendingLifecycleWrites]);
+    }
+  }
+
+  private reportLifecycleWriteFailure(event: ExecutionEventType): void {
+    // Do not include the database error: drivers may include SQL, parameters,
+    // hosts, or credentials in its message and stack.
+    try {
+      console.error(JSON.stringify({
+        Event: 'EXECUTION_LIFECYCLE_LOG_FAILED',
+        LogEvent: event,
+        ...(this.tenant ? { CompanyUUID: this.tenant.CompanyUUID, IdDatabase: this.tenant.IdDatabase } : {}),
+      }));
+    } catch {
+      // A diagnostic sink must not turn a best-effort lifecycle log into a
+      // failed request or an unhandled rejection.
+    }
   }
 
   runtimeStart(): Promise<void> {
-    return this.append(ExecutionEventTypes.RuntimeStart, { Status: 'STARTED' });
+    return this.append(ExecutionEventTypes.RuntimeStart, {
+      Status: 'STARTED',
+      ...(this.tenant ? { InputJSON: serialize({ Tenant: this.tenant }) } : {}),
+    });
   }
 
   agentStart(agentName: string): Promise<void> {

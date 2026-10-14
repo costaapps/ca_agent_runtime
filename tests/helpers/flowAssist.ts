@@ -4,6 +4,7 @@ import type { FlowAssistAgentOutput } from '../../src/api/contracts/flowAssistOu
 
 // Core -> Runtime semantic manifest. No database/query/resolver configuration.
 export const flowAssistInput: FlowAssistPrefillInput = {
+  CompanyUUID: 'd2719f62-8a67-4fd5-a6ae-411a6a3ef177',
   Agent: 'flow-assist-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789,
   Instructions: 'Utilize somente informações identificadas com segurança na conversa.',
   Messages: [

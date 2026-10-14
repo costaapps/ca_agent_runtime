@@ -1,4 +1,4 @@
-import { index, int, longtext, mysqlTable, char, text, varchar, bigint, datetime } from 'drizzle-orm/mysql-core';
+import { index, int, longtext, mysqlTable, char, text, varchar, bigint, datetime, unique } from 'drizzle-orm/mysql-core';
 
 export const aiAgentExecution = mysqlTable('AIAgentExecution', {
   IdAIAgentExecution: bigint('IdAIAgentExecution', { mode: 'number' }).autoincrement().primaryKey(),
@@ -8,7 +8,7 @@ export const aiAgentExecution = mysqlTable('AIAgentExecution', {
   IdProcessLine: int('IdProcessLine'),
   IdProcessLineFlow: int('IdProcessLineFlow'),
   IdAIAgentSession: bigint('IdAIAgentSession', { mode: 'number' }),
-  TurnUUID: char('TurnUUID', { length: 36 }).unique('UQ_AIAgentExecution_TurnUUID'),
+  TurnUUID: char('TurnUUID', { length: 36 }),
   TurnInputJSON: longtext('TurnInputJSON'),
   TurnPayloadHash: char('TurnPayloadHash', { length: 64 }),
   RequestedAgent: varchar('RequestedAgent', { length: 250 }).notNull(),
@@ -29,6 +29,7 @@ export const aiAgentExecution = mysqlTable('AIAgentExecution', {
   chat: index('IX_AIAgentExecution_Chat').on(table.IdChat, table.StartedAt),
   openAITrace: index('IX_AIAgentExecution_OpenAITraceId').on(table.OpenAITraceId),
   session: index('IX_AIAgentExecution_Session').on(table.IdAIAgentSession),
+  companyTurn: unique('UQ_AIAgentExecution_Company_TurnUUID').on(table.IdCompany, table.TurnUUID),
 }));
 
 export type AIAgentExecution = typeof aiAgentExecution.$inferSelect;

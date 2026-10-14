@@ -7,13 +7,19 @@ export class MemorySessionRepository implements AgentSessionRepository {
   items = new Map<string, AgentInputItem[]>();
   executionUUIDs = new Map<string, string[]>();
 
-  constructor(private readonly executionRepository?: MemoryRepository) {}
+  private boundCompanyId?: number;
 
-  async findByProcessLine(idCompany: number, idProcessLine: number): Promise<AgentSessionRecord | undefined> {
-    return this.sessions.find((session) => session.IdCompany === idCompany && session.IdProcessLine === idProcessLine);
+  constructor(private readonly executionRepository?: MemoryRepository, idCompany?: number) {
+    this.boundCompanyId = idCompany;
+  }
+
+  async findByProcessLine(idProcessLine: number): Promise<AgentSessionRecord | undefined> {
+    return this.sessions.find((session) => (this.boundCompanyId === undefined || session.IdCompany === this.boundCompanyId) && session.IdProcessLine === idProcessLine);
   }
 
   async createSession(data: Omit<AgentSessionRecord, 'IdAIAgentSession'>): Promise<AgentSessionRecord> {
+    if (this.boundCompanyId === undefined) this.boundCompanyId = data.IdCompany;
+    if (data.IdCompany !== this.boundCompanyId) throw new Error('Session pertence a outra empresa do repository fake.');
     const session = { ...data, IdAIAgentSession: this.sessions.length + 1 };
     this.sessions.push(session);
     this.items.set(session.SessionUUID, []);
@@ -26,8 +32,8 @@ export class MemorySessionRepository implements AgentSessionRepository {
     if (session) session.LastActivityAt = new Date();
   }
 
-  async closeSession(idCompany: number, idProcessLine: number): Promise<AgentSessionRecord | undefined> {
-    const session = await this.findByProcessLine(idCompany, idProcessLine);
+  async closeSession(idProcessLine: number): Promise<AgentSessionRecord | undefined> {
+    const session = await this.findByProcessLine(idProcessLine);
     if (session && session.Status === 'OPEN') {
       session.Status = 'CLOSED';
       session.ClosedAt = new Date();
@@ -59,7 +65,8 @@ export class MemorySessionRepository implements AgentSessionRepository {
   }
 
   async findExecutionByTurn(turnUUID: string): Promise<StoredTurnExecution | undefined> {
-    const entry = this.executionRepository?.executions.find((execution) => execution.data.TurnUUID === turnUUID);
+    const entry = this.executionRepository?.executions.find((execution) => execution.data.TurnUUID === turnUUID
+      && (this.boundCompanyId === undefined || execution.data.IdCompany === this.boundCompanyId));
     if (!entry || !entry.data.TurnUUID) return undefined;
     return {
       IdAIAgentExecution: entry.id,

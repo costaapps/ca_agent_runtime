@@ -25,7 +25,7 @@ describe('HTTP API', () => {
 
       const valid = await fetch(`http://127.0.0.1:${port}/v1/agent-runs`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ Agent: 'chat-orchestrator-poc', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789, Message: 'Olá', ExpectedOutput: { Name: 'Intent', Description: 'Classifique.' }, Extra: 'accepted' }),
+        body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'chat-orchestrator-poc', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789, Message: 'Olá', ExpectedOutput: { Name: 'Intent', Description: 'Classifique.' }, Extra: 'accepted' }),
       });
       expect(valid.status).toBe(200);
       expect((await valid.json()).Output).toEqual({ Intent: 'Intent' });
@@ -44,7 +44,7 @@ describe('HTTP API', () => {
     const port = typeof address === 'object' && address ? address.port : 0;
     try {
       const response = await fetch(`http://127.0.0.1:${port}/v1/agent-runs`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ Agent: 'missing-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789, Message: 'Olá', ExpectedOutput: { Name: 'Intent', Description: 'Classifique.' } }),
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'missing-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789, Message: 'Olá', ExpectedOutput: { Name: 'Intent', Description: 'Classifique.' } }),
       });
       expect(response.status).toBe(422);
       const body = await response.json();
@@ -79,14 +79,14 @@ describe('HTTP API', () => {
 
       const turn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 1, Text: 'Oi' }] }),
+        body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 1, Text: 'Oi' }] }),
       });
       expect(turn.status).toBe(200);
       expect(await turn.json()).toMatchObject({ Success: true, SessionUUID: 'session-uuid' });
 
       const knowledgeTurn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ TurnUUID: '14ed24ea-0000-4000-8000-000000000611', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 611, Text: 'Reembolso?' }], KnowledgeConfiguration: configuredKnowledge }),
+        body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', TurnUUID: '14ed24ea-0000-4000-8000-000000000611', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 611, Text: 'Reembolso?' }], KnowledgeConfiguration: configuredKnowledge }),
       });
       expect(knowledgeTurn.status).toBe(200);
       expect(receivedTurns.at(-1).KnowledgeConfiguration.References).toHaveLength(2);
@@ -94,6 +94,7 @@ describe('HTTP API', () => {
       const moduleTurn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
           TurnUUID: '14ed24ea-0000-4000-8000-000000000613', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
           Messages: [{ IdMessage: 613, Text: 'Faça um pedido.' }],
           AgentContext: { Name: 'Pedido de Venda', Objective: 'Montar pedido.', Instructions: 'Use capabilities.', CompletionCriteria: ['Pedido criado'] },
@@ -105,6 +106,7 @@ describe('HTTP API', () => {
       const invalidModule = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
           TurnUUID: '14ed24ea-0000-4000-8000-000000000614', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
           Messages: [{ IdMessage: 614, Text: 'Faça um pedido.' }], AgentContext: { Name: 'Pedido', Objective: 'Montar', Instructions: '', CompletionCriteria: [], FlowOptions: {} },
         }),
@@ -113,13 +115,14 @@ describe('HTTP API', () => {
 
       const invalidKnowledge = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ TurnUUID: '14ed24ea-0000-4000-8000-000000000612', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 612, Text: 'Reembolso?' }], KnowledgeConfiguration: { ...configuredKnowledge, APIKey: 'not-allowed' } }),
+        body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', TurnUUID: '14ed24ea-0000-4000-8000-000000000612', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 612, Text: 'Reembolso?' }], KnowledgeConfiguration: { ...configuredKnowledge, APIKey: 'not-allowed' } }),
       });
       expect(invalidKnowledge.status).toBe(400);
 
       const activation = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
           TurnUUID: '14ed24ea-0000-4000-8000-000000000002', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
           TurnSource: 'ACTIVATION', Messages: [], ProcessContextRevision: 4,
           ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
@@ -134,6 +137,7 @@ describe('HTTP API', () => {
       const incoherentActivation = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
           TurnUUID: '14ed24ea-0000-4000-8000-000000000003', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
           TurnSource: 'ACTIVATION', Messages: [{ IdMessage: 2, Text: 'não deve ser fala' }],
           ActivationContext: { ActivationUUID: 'activation-2', Source: 'HANDOFF', Context: {} },
@@ -142,7 +146,7 @@ describe('HTTP API', () => {
       expect(incoherentActivation.status).toBe(400);
 
       const close = await fetch(`http://127.0.0.1:${port}/v1/agent-sessions/close`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ IdCompany: 1003, IdProcessLine: 456, Reason: 'PROCESS_LINE_CLOSED' }),
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdCompany: 1003, IdProcessLine: 456, Reason: 'PROCESS_LINE_CLOSED' }),
       });
       expect(close.status).toBe(200);
       expect(await close.json()).toMatchObject({ Success: true, Status: 'CLOSED' });

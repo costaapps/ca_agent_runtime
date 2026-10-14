@@ -16,6 +16,13 @@ export const ErrorCodes = {
   AgentSessionNotFound: 'AGENT_SESSION_NOT_FOUND',
   TurnInProgress: 'TURN_IN_PROGRESS',
   TurnIdempotencyConflict: 'TURN_IDEMPOTENCY_CONFLICT',
+  TenantInvalid: 'TENANT_INVALID',
+  TenantNotAllowed: 'TENANT_NOT_ALLOWED',
+  TenantNotFound: 'TENANT_NOT_FOUND',
+  TenantRegistryConflict: 'TENANT_REGISTRY_CONFLICT',
+  TenantRegistryUnavailable: 'TENANT_REGISTRY_UNAVAILABLE',
+  TenantDatabaseUnavailable: 'TENANT_DATABASE_UNAVAILABLE',
+  TenantPoolUnavailable: 'TENANT_POOL_UNAVAILABLE',
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];

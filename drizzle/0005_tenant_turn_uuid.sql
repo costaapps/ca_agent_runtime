@@ -1,0 +1,2 @@
+ALTER TABLE `AIAgentExecution` DROP INDEX `UQ_AIAgentExecution_TurnUUID`;--> statement-breakpoint
+ALTER TABLE `AIAgentExecution` ADD CONSTRAINT `UQ_AIAgentExecution_Company_TurnUUID` UNIQUE(`IdCompany`,`TurnUUID`);

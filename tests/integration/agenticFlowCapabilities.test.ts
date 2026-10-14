@@ -135,13 +135,14 @@ describe('Agentic Flow V1 contract path', () => {
     const registry = new AgentRegistry(undefined, { 'sales-agent': (context) => createSalesAgent({ ...context, model: model as any }) });
     const runtime = new AgentRuntime({
       repository, sessionRepository, registry, mcpServer: server, observability, model: 'test-model', tracingEnabled: false, traceIncludeSensitiveData: false,
+      tenantScope: { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 },
       runner: { async run(agent: Agent<RuntimeContextData, any>, input: string | AgentInputItem[], context: RuntimeContextData, _tracing: any, session?: any) {
         const runner = new Runner({ model: model as any, tracingDisabled: true, workflowName: 'agentic-flow-test' });
         const result = await runner.run(agent, input, { context, stream: false, session });
         return { finalOutput: result.finalOutput, lastAgent: result.lastAgent ? { name: result.lastAgent.name } : undefined };
       } },
     });
-    const base = { Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+    const base = { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
       AgentContext: { Name: 'Pedido', Objective: 'Montar pedido.', Instructions: 'Use as capabilities.', CompletionCriteria: ['Pedido criado'] } };
 
     const first = await runtime.runTurn({ ...base, TurnUUID: '14ed24ea-0000-4000-8000-000000000301', Messages: [{ IdMessage: 1001, Text: 'Pedido para Café do Mercado, entrega 2026-10-05 pela Jadlog.' }] });

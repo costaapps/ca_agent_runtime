@@ -8,6 +8,7 @@ import { AgentNotFoundError } from '../../src/errors/RuntimeError.js';
 
 describe('AIDocument contracts', () => {
   const coreActivationPayload = {
+    CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
     TurnUUID: '14ed24ea-0000-4000-8000-000000000100',
     Agent: 'sales-agent',
     IdCompany: 1001,
@@ -31,10 +32,12 @@ describe('AIDocument contracts', () => {
 
   it('validates the new turn and fixed root output', () => {
     expect(AgentTurnInputSchema.safeParse({
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: '1003', IdChat: 123, IdProcessLine: 456,
       Messages: [{ IdMessage: 1001, Text: 'Quero comprar' }],
     }).success).toBe(true);
     const legacy = AgentTurnInputSchema.parse({
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
       Messages: [{ IdMessage: 1001, Text: 'Quero comprar' }],
     });
@@ -62,6 +65,7 @@ describe('AIDocument contracts', () => {
 
   it('accepts the company configuration default and rejects a configuration code that changes the requested Agent', () => {
     const base = {
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       TurnUUID: '14ed24ea-0000-4000-8000-000000000099', Agent: 'reception-agent', IdCompany: 1001, IdChat: 2001, IdProcessLine: 3001,
       Messages: [{ IdMessage: 99, Text: 'Olá' }],
     };
@@ -72,6 +76,7 @@ describe('AIDocument contracts', () => {
 
   it('validates the optional module AgentContext without technical Flow configuration', () => {
     const base = {
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       TurnUUID: '14ed24ea-0000-4000-8000-000000000199', Agent: 'sales-agent', IdCompany: 1001, IdChat: 2001, IdProcessLine: 3001,
       Messages: [{ IdMessage: 99, Text: 'Pedido' }],
     };

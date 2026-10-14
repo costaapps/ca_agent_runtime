@@ -7,12 +7,14 @@ import { AgentRegistry } from '../agents/AgentRegistry.js';
 import { flowAssistInputItems } from '../agents/flow-assist/flowAssistAgent.js';
 import type { AiExecutionRepository } from '../database/repositories/aiExecutionRepository.js';
 import { ErrorCodes } from '../errors/errorCodes.js';
-import { RuntimeError, asRuntimeError } from '../errors/RuntimeError.js';
+import { RuntimeError, asDatabaseRuntimeError, asRuntimeError, SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE } from '../errors/RuntimeError.js';
 import type { OpenAIRunner } from '../openai/runner.js';
 import { createOpenAITraceId } from '../openai/tracing.js';
 import { ExecutionLogger } from '../tracing/ExecutionLogger.js';
 import type { RuntimeContextData } from './RuntimeContext.js';
 import type { KnowledgeSearchService } from '../knowledge/KnowledgeSearchService.js';
+import type { TenantScope } from './TenantScope.js';
+import type { RuntimeExecutionContext } from './RuntimeContext.js';
 
 export interface FlowAssistRuntimeOptions {
   repository: AiExecutionRepository;
@@ -22,10 +24,11 @@ export interface FlowAssistRuntimeOptions {
   tracingEnabled: boolean;
   traceIncludeSensitiveData: boolean;
   knowledgeSearchService: KnowledgeSearchService;
+  tenantScope?: TenantScope;
 }
 
 export interface FlowAssistRuntimeResult {
-  statusCode: 200 | 422 | 500;
+  statusCode: 200 | 422 | 500 | 503;
   response: FlowAssistOutput;
 }
 
@@ -72,7 +75,7 @@ export class FlowAssistRuntime {
     let executionId: number | undefined;
     let logger: ExecutionLogger | undefined;
     const persist = async <T>(operation: () => Promise<T>): Promise<T> => {
-      try { return await operation(); } catch (error) { throw asRuntimeError(error, ErrorCodes.PersistenceError); }
+      try { return await operation(); } catch (error) { throw asDatabaseRuntimeError(error); }
     };
     try {
       try {
@@ -84,17 +87,30 @@ export class FlowAssistRuntime {
           IdProcessLine: input.IdProcessLine,
           IdProcessLineFlow: input.IdProcessLineFlow,
           Message: JSON.stringify(input.Messages),
-          RuntimeConfigJSON: JSON.stringify({ Mode: 'FLOW_ASSIST', ...(input.Mode === 'CHECK' ? { AssistMode: 'CHECK' } : {}), Model: this.options.model, TracingEnabled: this.options.tracingEnabled }),
+          RuntimeConfigJSON: JSON.stringify({
+            Mode: 'FLOW_ASSIST', ...(input.Mode === 'CHECK' ? { AssistMode: 'CHECK' } : {}),
+            Model: this.options.model, TracingEnabled: this.options.tracingEnabled,
+            ...(this.options.tenantScope ? { Tenant: { CompanyUUID: this.options.tenantScope.CompanyUUID, IdDatabase: this.options.tenantScope.IdDatabase } } : {}),
+          }),
           Success: 'N',
           OpenAITraceId: traceId,
           StartedAt: new Date(startedAt),
         });
-      } catch (error) { throw asRuntimeError(error, ErrorCodes.PersistenceError); }
+      } catch (error) { throw asDatabaseRuntimeError(error); }
 
-      logger = new ExecutionLogger(this.options.repository, executionId);
+      logger = new ExecutionLogger(this.options.repository, executionId, this.options.tenantScope);
       await persist(() => logger!.runtimeStart());
+      const execution: RuntimeExecutionContext = {
+        ExecutionUUID: executionUUID,
+        CompanyUUID: this.options.tenantScope?.CompanyUUID ?? input.CompanyUUID,
+        IdDatabase: this.options.tenantScope?.IdDatabase,
+        IdCompany: input.IdCompany,
+        IdChat: input.IdChat,
+        IdProcessLine: input.IdProcessLine,
+        IdProcessLineFlow: input.IdProcessLineFlow,
+      };
       const context: RuntimeContextData = {
-        Execution: Object.freeze({ ExecutionUUID: executionUUID, IdCompany: input.IdCompany, IdChat: input.IdChat, IdProcessLine: input.IdProcessLine, IdProcessLineFlow: input.IdProcessLineFlow }),
+        Execution: Object.freeze(execution),
         ProcessContext: Object.freeze({ System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} }),
         ActivationContext: null,
         Resolved: {},
@@ -115,6 +131,8 @@ export class FlowAssistRuntime {
         idChat: input.IdChat,
         idProcessLine: input.IdProcessLine,
         idProcessLineFlow: input.IdProcessLineFlow,
+        companyUUID: this.options.tenantScope?.CompanyUUID,
+        idDatabase: this.options.tenantScope?.IdDatabase,
         traceId,
       }).catch((error: unknown) => {
         // The SDK parses outputType before returning finalOutput. Preserve the
@@ -134,7 +152,7 @@ export class FlowAssistRuntime {
           FinalAgent: agent.name, Success: 'Y', OutputJSON: JSON.stringify(output), FinishedAt: new Date(), DurationMs: duration(),
         });
         await logger.runtimeEnd(duration());
-      } catch (error) { throw asRuntimeError(error, ErrorCodes.PersistenceError); }
+      } catch (error) { throw asDatabaseRuntimeError(error); }
       return { statusCode: 200, response: { Success: true, ExecutionUUID: executionUUID, ...output } };
     } catch (error) {
       const runtimeError = asRuntimeError(error);
@@ -151,10 +169,11 @@ export class FlowAssistRuntime {
         } catch { /* A log failure must not prevent execution finalization. */ }
       }
       return {
-        statusCode: runtimeError.code === ErrorCodes.AgentNotFound ? 422 : 500,
+        statusCode: runtimeError.code === ErrorCodes.AgentNotFound ? 422
+          : runtimeError.code === ErrorCodes.TenantDatabaseUnavailable ? 503 : 500,
         response: input.Mode === 'CHECK'
-          ? { Success: false, ExecutionUUID: executionUUID, Mode: 'CHECK', Results: [], Error: { Code: runtimeError.code, Message: 'Não foi possível concluir o Agent Assist.' } }
-          : { Success: false, ExecutionUUID: executionUUID, Proposals: [], Error: { Code: runtimeError.code, Message: 'Não foi possível concluir o Agent Assist.' } },
+          ? { Success: false, ExecutionUUID: executionUUID, Mode: 'CHECK', Results: [], Error: { Code: runtimeError.code, Message: runtimeError.code === ErrorCodes.TenantDatabaseUnavailable ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE : 'Não foi possível concluir o Agent Assist.' } }
+          : { Success: false, ExecutionUUID: executionUUID, Proposals: [], Error: { Code: runtimeError.code, Message: runtimeError.code === ErrorCodes.TenantDatabaseUnavailable ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE : 'Não foi possível concluir o Agent Assist.' } },
       };
     }
   }

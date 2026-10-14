@@ -19,9 +19,10 @@ function buildRegistry() {
 
 function buildContext() {
   return createAIDocumentRuntimeContext({
+    CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
     TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'reception-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
     Messages: [{ IdMessage: 1001, Text: 'Olá' }],
-  }, 'execution-uuid', 'session-uuid');
+  }, 'execution-uuid', 'session-uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
 }
 
 describe('ReceptionAgent', () => {
@@ -110,6 +111,7 @@ describe('ReceptionAgent', () => {
 
   it('instructs Reception not to use inherited CurrentIntent alone for rehandoff after MODULE_COMPLETED', () => {
     const context = createAIDocumentRuntimeContext({
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       TurnUUID: '14ed24ea-0000-4000-8000-000000000020', Agent: 'reception-agent',
       IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
       TurnSource: 'ACTIVATION', Messages: [],
@@ -121,7 +123,7 @@ describe('ReceptionAgent', () => {
         ActivationUUID: 'activation-completed-1', Source: 'MODULE_COMPLETED',
         Context: { Continuation: true, Reason: 'PREVIOUS_MODULE_COMPLETED' },
       },
-    }, 'execution-uuid', 'session-uuid');
+    }, 'execution-uuid', 'session-uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
     const graph = buildRegistry().buildAIDocument('reception-agent', {
       mcpServer: createFakeMcpServer(), model: 'test-model', runtimeContext: context,
       logger: new ExecutionLogger(new MemoryRepository(), 1),
@@ -143,12 +145,13 @@ describe('ReceptionAgent', () => {
 
   it('keeps a new MESSAGE as user input with Navigation available', async () => {
     const turn = {
+      CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
       TurnUUID: '14ed24ea-0000-4000-8000-000000000021', Agent: 'reception-agent',
       IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
       TurnSource: 'MESSAGE' as const,
       Messages: [{ IdMessage: 1002, Text: 'Quero conhecer os produtos' }],
     };
-    const context = createAIDocumentRuntimeContext(turn, 'execution-uuid', 'session-uuid');
+    const context = createAIDocumentRuntimeContext(turn, 'execution-uuid', 'session-uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
     const graph = buildRegistry().buildAIDocument('reception-agent', {
       mcpServer: createFakeMcpServer(), model: 'test-model', runtimeContext: context,
       logger: new ExecutionLogger(new MemoryRepository(), 1),

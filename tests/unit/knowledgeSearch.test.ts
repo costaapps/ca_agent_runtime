@@ -11,7 +11,7 @@ import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
 
 const snapshot = KnowledgeConfigurationSchema.parse(configuredKnowledge);
-const context = createAIDocumentRuntimeContext({ TurnUUID: '14ed24ea-0000-4000-8000-000000000601', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 601, Text: 'Reembolso' }] }, 'execution-uuid', 'session-uuid');
+const context = createAIDocumentRuntimeContext({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', TurnUUID: '14ed24ea-0000-4000-8000-000000000601', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 601, Text: 'Reembolso' }] }, 'execution-uuid', 'session-uuid', { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 });
 
 describe('local Knowledge search boundary', () => {
   it('searches an authorized BASE without a filter and uses the runtime default', async () => {

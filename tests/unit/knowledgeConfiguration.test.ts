@@ -5,6 +5,7 @@ import { canonicalTurnPayload, hashPreKnowledgeTurnPayload, hashTurnPayload } fr
 import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
 
 const turn = {
+  CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
   TurnUUID: '14ed24ea-0000-4000-8000-000000000600', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123,
   IdProcessLine: 456, Messages: [{ IdMessage: 600, Text: 'Política de devolução?' }],
 };

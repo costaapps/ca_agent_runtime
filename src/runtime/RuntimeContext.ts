@@ -1,5 +1,6 @@
 import type { AgentRunInput, ExpectedOutput } from '../api/contracts/agentRunInput.js';
 import type { ActivationContext, AgentTurnInput, ProcessContext, TurnSource } from '../api/contracts/agentTurnInput.js';
+import type { TenantScope } from './TenantScope.js';
 
 export interface RuntimeProcessContext {
   readonly System: Record<string, unknown>;
@@ -11,6 +12,8 @@ export interface RuntimeProcessContext {
 
 export interface RuntimeExecutionContext {
   readonly ExecutionUUID: string;
+  readonly CompanyUUID?: string;
+  readonly IdDatabase?: number;
   readonly IdCompany: number;
   readonly IdChat: number;
   readonly IdProcessLine: number;
@@ -40,9 +43,11 @@ function freezeProcessContext(value: ProcessContext): RuntimeProcessContext {
   });
 }
 
-export function createRuntimeContext(input: AgentRunInput, executionUUID: string): RuntimeContextData {
+export function createRuntimeContext(input: AgentRunInput, executionUUID: string, tenant?: TenantScope): RuntimeContextData {
   const execution: RuntimeExecutionContext = Object.freeze({
     ExecutionUUID: executionUUID,
+    CompanyUUID: tenant?.CompanyUUID ?? input.CompanyUUID,
+    IdDatabase: tenant?.IdDatabase,
     IdCompany: input.IdCompany,
     IdChat: input.IdChat,
     IdProcessLine: input.IdProcessLine,
@@ -62,9 +67,12 @@ export function createAIDocumentRuntimeContext(
   input: AgentTurnInput,
   executionUUID: string,
   sessionUUID: string,
+  tenant?: TenantScope,
 ): RuntimeContextData {
   const execution: RuntimeExecutionContext = Object.freeze({
     ExecutionUUID: executionUUID,
+    CompanyUUID: tenant?.CompanyUUID ?? input.CompanyUUID,
+    IdDatabase: tenant?.IdDatabase,
     IdCompany: input.IdCompany,
     IdChat: input.IdChat,
     IdProcessLine: input.IdProcessLine,

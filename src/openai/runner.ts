@@ -1,4 +1,4 @@
-import { Runner, type Agent, type AgentInputItem, type Session } from '@openai/agents';
+import { OpenAIProvider, Runner, type Agent, type AgentInputItem, type Session } from '@openai/agents';
 import type { RuntimeContextData } from '../runtime/RuntimeContext.js';
 import type { TraceSettings } from './tracing.js';
 
@@ -8,14 +8,18 @@ export interface AgentRunResultLike {
 }
 
 export interface OpenAIRunner {
-  run(agent: Agent<RuntimeContextData, any>, input: string | AgentInputItem[], context: RuntimeContextData, tracing: TraceSettings, session?: Session): Promise<AgentRunResultLike>;
+  run(agent: Agent<RuntimeContextData, any>, input: string | AgentInputItem[], context: RuntimeContextData, tracing: TraceSettings, session?: Session, resolveApiKey?: () => Promise<string>): Promise<AgentRunResultLike>;
 }
 
 export function createOpenAIRunner(): OpenAIRunner {
   return {
-    async run(agent, input, context, tracing, session) {
+    async run(agent, input, context, tracing, session, resolveApiKey) {
+      if (!resolveApiKey) throw new Error('OPENAI_CREDENTIAL_NOT_CONFIGURED');
+      const apiKey = await resolveApiKey();
+      const modelProvider = new OpenAIProvider({ apiKey });
       const runner = new Runner({
         model: tracing.model,
+        modelProvider,
         workflowName: 'Msg4 AI Flow',
         traceId: tracing.traceId,
         groupId: tracing.companyUUID && tracing.idDatabase !== undefined
@@ -37,10 +41,21 @@ export function createOpenAIRunner(): OpenAIRunner {
         tracingDisabled: !tracing.enabled,
         traceIncludeSensitiveData: tracing.includeSensitiveData,
       });
-      const result = await runner.run(agent, input, { context, stream: false, session });
-      const output: AgentRunResultLike = { finalOutput: result.finalOutput };
-      if (result.lastAgent) output.lastAgent = { name: result.lastAgent.name };
-      return output;
+      try {
+        try {
+          const result = await runner.run(agent, input, { context, stream: false, session, tracing: { apiKey } });
+          const output: AgentRunResultLike = { finalOutput: result.finalOutput };
+          if (result.lastAgent) output.lastAgent = { name: result.lastAgent.name };
+          return output;
+        } catch (error) {
+          if (error instanceof Error && error.message.includes(apiKey)) {
+            throw new Error(error.message.split(apiKey).join('[REDACTED]'));
+          }
+          throw error;
+        }
+      } finally {
+        await modelProvider.close();
+      }
     },
   };
 }

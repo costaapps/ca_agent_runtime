@@ -1,5 +1,5 @@
 import type { KnowledgeConnection } from '../../api/contracts/knowledgeConfiguration.js';
 
 export interface ProviderCredentialResolver {
-  resolve(connection: KnowledgeConnection): string;
+  resolve(connection: KnowledgeConnection): string | Promise<string>;
 }

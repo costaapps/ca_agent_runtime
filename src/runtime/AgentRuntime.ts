@@ -13,6 +13,7 @@ import type { NewAIAgentExecution } from '../database/schema/aiAgentExecution.js
 import type { AiExecutionRepository } from '../database/repositories/aiExecutionRepository.js';
 import type { AgentSessionRecord, AgentSessionRepository, StoredTurnExecution } from '../database/repositories/aiSessionRepository.js';
 import { ExecutionLogger } from '../tracing/ExecutionLogger.js';
+import { ExecutionEventTypes } from '../tracing/eventTypes.js';
 import { createAIDocumentRuntimeContext, createRuntimeContext } from './RuntimeContext.js';
 import { compileExpectedOutput } from './ExpectedOutputCompiler.js';
 import { resolveOutput } from './OutputResolver.js';
@@ -70,7 +71,7 @@ function durationSince(startedAt: number): number { return Math.max(0, Date.now(
 function attachAgentLifecycleLogging(graph: AgentGraph, logger: ExecutionLogger): void {
   for (const agent of graph.agents) {
     agent.on('agent_start', (_context, startedAgent) => {
-      void logger.agentStart(startedAgent.name).catch(() => undefined);
+      logger.trackLifecycleWrite(ExecutionEventTypes.AgentStart, logger.agentStart(startedAgent.name));
     });
   }
 }
@@ -223,6 +224,7 @@ export class AgentRuntime {
         traceId: openAITraceId,
       };
       const result = await this.options.runner.run(graph.root, input.Message, context, traceSettings);
+      await logger.flushLifecycleWrites();
       const output = resolveOutput(result.finalOutput, compiled);
       const finalAgent = result.lastAgent?.name ?? 'ChatOrchestrator';
       await logger.agentOutput(finalAgent, output);
@@ -231,12 +233,14 @@ export class AgentRuntime {
       await logger.runtimeEnd(durationMs);
       return { statusCode: 200, response: { Success: true, ExecutionUUID: executionUUID, Output: output } satisfies AgentRunSuccess };
     } catch (error) {
+      await logger.flushLifecycleWrites();
       const runtimeError = asRuntimeError(error);
       const durationMs = durationSince(startedAt);
       try { await logger.runtimeError(runtimeError.code, runtimeError.message, durationMs); } catch { /* preserve original */ }
       try { await this.options.repository.failExecution(executionId, { Success: 'N', ErrorCode: runtimeError.code, ErrorMessage: runtimeError.message, FinishedAt: new Date(), DurationMs: durationMs }); } catch { /* preserve original */ }
       return { statusCode: 500, response: { Success: false, ExecutionUUID: executionUUID, Output: null, Error: { Code: runtimeError.code, Message: 'Não foi possível concluir a execução.' } } };
     } finally {
+      await logger.flushLifecycleWrites();
       this.options.observability.unregister(context);
     }
   }
@@ -362,9 +366,7 @@ export class AgentRuntime {
           knowledgeConfiguration: frozenKnowledge,
           knowledgeSearchService: this.knowledgeSearchService,
         });
-        for (const agent of graph.agents) {
-          agent.on('agent_start', (_runContext, startedAgent) => { void logger.agentStart(startedAgent.name).catch(() => undefined); });
-        }
+        attachAgentLifecycleLogging(graph, logger);
         const traceSettings: TraceSettings = {
           enabled: this.options.tracingEnabled,
           includeSensitiveData: this.options.traceIncludeSensitiveData,
@@ -384,6 +386,7 @@ export class AgentRuntime {
           traceId: openAITraceId,
         };
         const result = await this.options.runner.run(graph.root, turnInputItems(input), context, traceSettings, new DatabaseAgentSession(session.SessionUUID, sessionRepository, executionUUID));
+        await logger.flushLifecycleWrites();
         let output;
         try {
           output = AIDocumentRootOutputSchema.parse(result.finalOutput);
@@ -399,12 +402,14 @@ export class AgentRuntime {
         const response: AgentTurnSuccess = { Success: true, TurnUUID: input.TurnUUID, SessionUUID: session.SessionUUID, ExecutionUUID: executionUUID, Agent: session.RootAgent, Response: output.Response, Control: output.Control };
         return { statusCode: 200, response };
       } catch (error) {
+        await logger.flushLifecycleWrites();
         const runtimeError = asRuntimeError(error, ErrorCodes.AgentExecutionError);
         const durationMs = durationSince(startedAt);
         try { await logger.runtimeError(runtimeError.code, runtimeError.message, durationMs); } catch { /* preserve original */ }
         try { await this.options.repository.failExecution(executionId, { Success: 'N', ErrorCode: runtimeError.code, ErrorMessage: runtimeError.message, FinishedAt: new Date(), DurationMs: durationMs }); } catch { /* preserve original */ }
         return turnFailure(input, runtimeError.code, runtimeError.message, session.SessionUUID, executionUUID);
       } finally {
+        await logger.flushLifecycleWrites();
         this.options.observability.unregister(context);
       }
     } catch (error) {

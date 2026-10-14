@@ -1,6 +1,6 @@
 services:
   agent-runtime:
-    image: ${DOCKERHUB_IMAGE:-eduardomatuellacostaapps/ca}@${AGENT_RUNTIME_DIGEST:?Set AGENT_RUNTIME_DIGEST to sha256:<published digest>}
+    image: ${AGENT_RUNTIME_IMAGE:?Set AGENT_RUNTIME_IMAGE to a published AgentRuntime version or run tag}
     env_file:
       - ${AGENT_RUNTIME_ENV_FILE:-../agent-runtime.env}
     environment:

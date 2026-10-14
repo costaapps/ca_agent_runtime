@@ -34,8 +34,6 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
           RELEASE_SHA: ${{ github.sha }}
-          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
-          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
         run: node scripts/ci/validate-release.mjs
 
   verify-release:
@@ -46,7 +44,7 @@ jobs:
       release_mode: true
       expected_sha: ${{ needs.validate-release.outputs.sha }}
       image_version: ${{ needs.validate-release.outputs.version }}
-      image_repository: ${{ vars.DOCKERHUB_IMAGE }}
+      image_build_number: ${{ github.run_number }}
 
   publish:
     name: Publish verified image to Docker Hub
@@ -56,9 +54,10 @@ jobs:
     permissions:
       contents: read
     env:
-      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
-      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_IMAGE }}
       RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
+      RELEASE_BUILD_NUMBER: ${{ github.run_number }}
       RELEASE_SHA: ${{ needs.validate-release.outputs.sha }}
       EXPECTED_IMAGE_SOURCE: https://github.com/costaapps/ca_agent_runtime
     steps:
@@ -95,6 +94,6 @@ jobs:
           LOCAL_IMAGE_REF: ${{ needs.validate-release.outputs.image }}
           EXPECTED_IMAGE_TITLE: ca-agent-runtime
           EXPECTED_IMAGE_SOURCE: https://github.com/costaapps/ca_agent_runtime
-          EXPECTED_DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
-          EXPECTED_DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          EXPECTED_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          EXPECTED_DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_IMAGE }}
         run: node scripts/ci/publish-image.mjs

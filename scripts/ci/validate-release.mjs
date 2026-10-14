@@ -16,8 +16,7 @@ function git(args) {
 const tag = required('RELEASE_TAG');
 const releaseSha = required('RELEASE_SHA').toLowerCase();
 const prerelease = required('RELEASE_PRERELEASE');
-const dockerHubUsername = required('DOCKERHUB_USERNAME');
-const dockerHubImage = required('DOCKERHUB_IMAGE');
+const buildNumber = required('GITHUB_RUN_NUMBER');
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
 const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag);
 
@@ -27,9 +26,7 @@ const version = `${match[1]}.${match[2]}.${match[3]}`;
 if (version !== manifest.version) {
   throw new Error(`Release version ${version} differs from package version ${manifest.version}.`);
 }
-if (dockerHubUsername !== 'eduardomatuellacostaapps' || dockerHubImage !== `${dockerHubUsername}/ca`) {
-  throw new Error('Set the approved repository variables DOCKERHUB_USERNAME=eduardomatuellacostaapps and DOCKERHUB_IMAGE=eduardomatuellacostaapps/ca.');
-}
+if (!/^[1-9]\d*$/.test(buildNumber)) throw new Error('GITHUB_RUN_NUMBER must be a positive integer.');
 
 const head = git(['rev-parse', 'HEAD']).toLowerCase();
 const taggedCommit = git(['rev-parse', `${tag}^{commit}`]).toLowerCase();
@@ -46,8 +43,7 @@ if (!mainAvailable) {
 const ancestry = spawnSync('git', ['merge-base', '--is-ancestor', releaseSha, mainRef], { encoding: 'utf8' });
 if (ancestry.status !== 0) throw new Error(`Release commit ${releaseSha} is not an ancestor of main.`);
 
-const repository = dockerHubImage;
-const image = `${repository}:agent-runtime-${version}`;
+const image = `ca-agent-runtime-release:agent-runtime-${buildNumber}`;
 const output = required('GITHUB_OUTPUT');
 appendFileSync(output, `version=${version}\nsha=${releaseSha}\nimage=${image}\n`);
 process.stdout.write(`Validated stable release ${tag} at ${releaseSha}, included in main.\n`);

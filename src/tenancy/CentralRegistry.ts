@@ -83,7 +83,9 @@ export class CentralRegistry {
     const request = this.load(normalized, lookupSequence)
       .then((descriptor) => {
         const current = this.databaseConfigs.get(descriptor.IdDatabase);
-        if (current?.fingerprint === connectionFingerprint(descriptor)) {
+        if (current
+          && lookupSequence >= current.lookupSequence
+          && current.fingerprint === connectionFingerprint(descriptor)) {
           this.cache.set(normalized, { descriptor, expiresAt: this.now() + this.cacheTtlMs });
         }
         return descriptor;
@@ -154,7 +156,7 @@ export class CentralRegistry {
         user: record.Username as string,
         password: record.Password as string,
       },
-    });
+    }, lookupSequence);
     this.rememberDatabaseConfig(descriptor, lookupSequence);
     return descriptor;
   }

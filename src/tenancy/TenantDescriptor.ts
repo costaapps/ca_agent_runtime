@@ -8,12 +8,16 @@ export interface TenantDatabaseConfig {
   readonly password: string;
 }
 
+/** Internal Registry ordering metadata; intentionally excluded from JSON and diagnostics. */
+export const TENANT_DESCRIPTOR_REGISTRY_VERSION: unique symbol = Symbol('tenant-registry-version');
+
 /** Connection details are internal routing data and must never be serialized into diagnostics. */
 export interface TenantDescriptor {
   readonly CompanyUUID: string;
   readonly IdDatabase: number;
   readonly IdCompany: number;
   readonly database: TenantDatabaseConfig;
+  readonly [TENANT_DESCRIPTOR_REGISTRY_VERSION]?: number;
 }
 
 const COMPANY_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -29,7 +33,10 @@ export function normalizeCompanyUUID(value: unknown): string {
   return normalized;
 }
 
-export function createTenantDescriptor(input: TenantDescriptor): TenantDescriptor {
+export function createTenantDescriptor(input: TenantDescriptor, registryVersion?: number): TenantDescriptor {
+  if (registryVersion !== undefined && (!Number.isSafeInteger(registryVersion) || registryVersion <= 0)) {
+    throw new TypeError('registryVersion deve ser um inteiro positivo.');
+  }
   const descriptor = {} as TenantDescriptor;
   Object.defineProperties(descriptor, {
     CompanyUUID: {
@@ -58,6 +65,12 @@ export function createTenantDescriptor(input: TenantDescriptor): TenantDescripto
       }),
       enumerable: false,
     },
+    ...(registryVersion === undefined ? {} : {
+      [TENANT_DESCRIPTOR_REGISTRY_VERSION]: {
+        value: registryVersion,
+        enumerable: false,
+      },
+    }),
   });
   return Object.freeze(descriptor);
 }

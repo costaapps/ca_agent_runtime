@@ -17,8 +17,8 @@ on:
         required: false
         type: string
         default: ''
-      image_repository:
-        description: Docker Hub repository for the release image.
+      image_build_number:
+        description: GitHub Actions run number used for the release image tag.
         required: false
         type: string
         default: ''
@@ -173,9 +173,9 @@ jobs:
         id: image
         env:
           REQUESTED_VERSION: ${{ inputs.image_version }}
+          REQUESTED_BUILD_NUMBER: ${{ inputs.image_build_number }}
           RELEASE_MODE: ${{ inputs.release_mode }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
-          DOCKERHUB_IMAGE: ${{ inputs.image_repository }}
         run: node scripts/ci/resolve-image-metadata.mjs
 
       - name: Build the linux/amd64 image once

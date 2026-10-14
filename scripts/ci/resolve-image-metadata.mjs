@@ -10,8 +10,8 @@ const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
 const expectedSha = required('EXPECTED_SHA').toLowerCase();
 const releaseMode = process.env.RELEASE_MODE === 'true';
 const requestedVersion = process.env.REQUESTED_VERSION?.trim() ?? '';
+const requestedBuildNumber = process.env.REQUESTED_BUILD_NUMBER?.trim() ?? '';
 const version = releaseMode ? requestedVersion : manifest.version;
-const configuredRepository = process.env.DOCKERHUB_IMAGE?.trim() ?? '';
 
 if (!/^[0-9a-f]{40}$/.test(expectedSha)) {
   throw new Error('EXPECTED_SHA must be a full 40-character Git commit SHA.');
@@ -22,16 +22,15 @@ if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
 if (releaseMode && version !== manifest.version) {
   throw new Error(`Release version ${version} differs from package version ${manifest.version}.`);
 }
-
-const repository = 'eduardomatuellacostaapps/ca';
-if (releaseMode && configuredRepository !== repository) {
-  throw new Error(`DOCKERHUB_IMAGE must be configured as ${repository}; received ${configuredRepository || '(empty)'}.`);
+if (releaseMode && !/^[1-9]\d*$/.test(requestedBuildNumber)) {
+  throw new Error('REQUESTED_BUILD_NUMBER must be a positive GitHub Actions run number.');
 }
+
 const primaryRef = releaseMode
-  ? `${configuredRepository}:agent-runtime-${version}`
+  ? `ca-agent-runtime-release:agent-runtime-${requestedBuildNumber}`
   : `ca-agent-runtime-ci:${expectedSha}`;
 const tags = releaseMode
-  ? [primaryRef, `${configuredRepository}:agent-runtime-sha-${expectedSha}`]
+  ? [primaryRef]
   : [primaryRef];
 
 const output = required('GITHUB_OUTPUT');

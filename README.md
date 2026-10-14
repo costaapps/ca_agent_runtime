@@ -132,6 +132,8 @@ npm run db:migrate:prod -- --company-uuid <CompanyUUID>
 
 O executor resolve uma base pelo Registry, usa `MIGRATION_DB_USER` e `MIGRATION_DB_PASSWORD`, e não roda no startup. A migration de Turn substitui unicidade global de `TurnUUID` por `(IdCompany, TurnUUID)`. Depois que empresas distintas reutilizarem o mesmo `TurnUUID`, rollback para a imagem anterior ao modo central não é seguro; use uma imagem central compatível com o schema.
 
+O CI valida as imagens em PRs e pushes para `develop`/`main`, sem publicá-las. Uma release estável publicada em commit de `main` gera as tags `agent-runtime-<run_number>` e `agent-runtime-<versão>` no Docker Hub. A atualização da VPS e a execução de migrations permanecem manuais; consulte [deploy/README.md](deploy/README.md) para o procedimento.
+
 ## Arquitetura operacional
 
 ### Agent Assist PREFILL no Flow determinístico — V1

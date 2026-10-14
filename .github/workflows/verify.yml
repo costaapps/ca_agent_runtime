@@ -1,0 +1,256 @@
+name: Agent Runtime verification
+
+on:
+  workflow_call:
+    inputs:
+      release_mode:
+        description: Save the verified image for a release publication job.
+        required: false
+        type: boolean
+        default: false
+      expected_sha:
+        description: Exact commit to check out and build.
+        required: true
+        type: string
+      image_version:
+        description: Stable manifest version for release builds.
+        required: false
+        type: string
+        default: ''
+      image_repository:
+        description: Docker Hub repository for the release image.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify source, tenant database, and image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      mariadb:
+        image: mariadb:11.8.6@sha256:78a5047d3ba33975f183f183c2464cc7f1eab13ec8667e57cc9a5821d6da7577
+        env:
+          MARIADB_ROOT_PASSWORD: agent-runtime-ci-root
+          MARIADB_DATABASE: agent_runtime_registry
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      CI_FIXTURE_MODE: '1'
+      MARIADB_HOST: 127.0.0.1
+      MARIADB_PORT: '3306'
+      MARIADB_ROOT_USER: root
+      MARIADB_ROOT_PASSWORD: agent-runtime-ci-root
+      CENTRAL_DB_HOST: 127.0.0.1
+      CENTRAL_DB_PORT: '3306'
+      CENTRAL_DB_NAME: agent_runtime_registry
+      CENTRAL_DB_USER: agent_runtime_registry
+      CENTRAL_DB_PASS: agent-runtime-ci-registry
+      CENTRAL_DB_CONNECTION_LIMIT: '4'
+      CENTRAL_REGISTRY_CACHE_MS: '60000'
+      AGENT_RUNTIME_TENANT_ALLOWLIST: '["11111111-1111-4111-8111-111111111111","22222222-2222-4222-8222-222222222222","33333333-3333-4333-8333-333333333333"]'
+      TENANT_DB_CONNECTION_LIMIT: '8'
+      TENANT_DB_MAX_POOLS: '32'
+      TENANT_DB_IDLE_TIMEOUT_MS: '300000'
+      AGENT_RUNTIME_DRAIN_TIMEOUT_MS: '120000'
+      CI_TENANT_DB_USER: agent_runtime_app
+      CI_TENANT_DB_PASSWORD: agent-runtime-ci-app
+      MCP_SERVER_URL: http://127.0.0.1:4318/mcp
+      MCP_TIMEOUT_MS: '5000'
+      OPENAI_API_KEY: sk-ci-placeholder-not-a-real-key
+      OPENAI_MODEL: ci-no-inference
+      OPENAI_TRACING_ENABLED: 'false'
+      OPENAI_TRACE_INCLUDE_SENSITIVE_DATA: 'false'
+
+    steps:
+      - name: Check out the requested commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js 24.21.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build production output
+        run: npm run build:prod
+
+      - name: Run deterministic unit and integration tests
+        env:
+          RUN_OPENAI_INTEGRATION_TESTS: '0'
+          RUN_TENANT_DB_INTEGRATION_TESTS: '0'
+        run: npm test
+
+      - name: Start the external MCP HTTP fake
+        env:
+          PORT: '4318'
+        run: |
+          node scripts/ci/mcp-fake.mjs > "$RUNNER_TEMP/mcp-fake.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/mcp-fake.pid"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4318/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/mcp-fake.log"
+          exit 1
+
+      - name: Audit production dependencies
+        run: node scripts/ci/audit-production.mjs
+
+      - name: Create isolated Registry and tenant fixtures
+        env:
+          MIGRATION_DB_PASSWORD: agent-runtime-ci-migration
+        run: node scripts/ci/prepare-mariadb.mjs --reset
+
+      - name: Migrate an empty tenant database
+        env:
+          MIGRATION_DB_USER: agent_runtime_migration
+          MIGRATION_DB_PASSWORD: agent-runtime-ci-migration
+        run: npm run db:migrate:prod -- --company-uuid 11111111-1111-4111-8111-111111111111
+
+      - name: Reapply migrations idempotently
+        env:
+          MIGRATION_DB_USER: agent_runtime_migration
+          MIGRATION_DB_PASSWORD: agent-runtime-ci-migration
+        run: npm run db:migrate:prod -- --company-uuid 11111111-1111-4111-8111-111111111111
+
+      - name: Create the previous released schema on a second database
+        env:
+          MIGRATION_DB_USER: agent_runtime_migration
+          MIGRATION_DB_PASSWORD: agent-runtime-ci-migration
+        run: node scripts/ci/prepare-previous-schema.mjs
+
+      - name: Upgrade the previous tenant schema
+        env:
+          MIGRATION_DB_USER: agent_runtime_migration
+          MIGRATION_DB_PASSWORD: agent-runtime-ci-migration
+        run: npm run db:migrate:prod -- --company-uuid 33333333-3333-4333-8333-333333333333
+
+      - name: Reapply the upgraded schema
+        env:
+          MIGRATION_DB_USER: agent_runtime_migration
+          MIGRATION_DB_PASSWORD: agent-runtime-ci-migration
+        run: npm run db:migrate:prod -- --company-uuid 33333333-3333-4333-8333-333333333333
+
+      - name: Verify tenant isolation against MariaDB
+        env:
+          RUN_TENANT_DB_INTEGRATION_TESTS: '1'
+          TENANT_TEST_REGISTRY_HOST: 127.0.0.1
+          TENANT_TEST_REGISTRY_PORT: '3306'
+          TENANT_TEST_REGISTRY_NAME: agent_runtime_registry
+          TENANT_TEST_REGISTRY_USER: agent_runtime_registry
+          TENANT_TEST_REGISTRY_PASSWORD: agent-runtime-ci-registry
+          TENANT_TEST_COMPANY_A_UUID: 11111111-1111-4111-8111-111111111111
+          TENANT_TEST_COMPANY_B_UUID: 22222222-2222-4222-8222-222222222222
+          TENANT_TEST_COMPANY_C_UUID: 33333333-3333-4333-8333-333333333333
+        run: npx vitest run tests/integration/tenantIsolation.test.ts
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Determine image reference
+        id: image
+        env:
+          REQUESTED_VERSION: ${{ inputs.image_version }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          DOCKERHUB_IMAGE: ${{ inputs.image_repository }}
+        run: node scripts/ci/resolve-image-metadata.mjs
+
+      - name: Build the linux/amd64 image once
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.image.outputs.tags }}
+          build-args: |
+            OCI_VERSION=${{ steps.image.outputs.version }}
+            OCI_REVISION=${{ inputs.expected_sha }}
+
+      - name: Verify image labels and platform
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.primary_ref }}
+          EXPECTED_VERSION: ${{ steps.image.outputs.version }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: node scripts/ci/verify-image-metadata.mjs
+
+      - name: Scan the built image for fixable high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.primary_ref }}
+          format: table
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Prepare the container smoke environment
+        if: success()
+        env:
+          SMOKE_ENV_FILE: ${{ runner.temp }}/agent-runtime-smoke.env
+        run: node scripts/ci/prepare-mariadb.mjs --container-host host.docker.internal --write-smoke-env "$SMOKE_ENV_FILE"
+
+      - name: Smoke the built image against MariaDB and the MCP fake
+        if: success()
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.primary_ref }}
+          SMOKE_ENV_FILE: ${{ runner.temp }}/agent-runtime-smoke.env
+          SMOKE_NETWORK: bridge
+          SMOKE_TENANT_A_UUID: 11111111-1111-4111-8111-111111111111
+          SMOKE_TENANT_A_ID: '7001'
+          SMOKE_TENANT_DB_A: ci_tenant_shared
+          SMOKE_TENANT_C_UUID: 33333333-3333-4333-8333-333333333333
+          SMOKE_TENANT_DB_C: ci_tenant_isolated
+          SMOKE_DB_ADMIN_HOST: 127.0.0.1
+          SMOKE_DB_ADMIN_PORT: '3306'
+          SMOKE_DB_ADMIN_USER: agent_runtime_migration
+          SMOKE_DB_ADMIN_PASSWORD: agent-runtime-ci-migration
+        run: node scripts/smoke-image.mjs
+
+      - name: Save the exact verified release image
+        if: inputs.release_mode && success()
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.primary_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          docker save "$IMAGE_REF" | gzip -1 > "$RUNNER_TEMP/agent-runtime-image.tar.gz"
+          echo "IMAGE_ARCHIVE=$RUNNER_TEMP/agent-runtime-image.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload the exact verified release image
+        if: inputs.release_mode && success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agent-runtime-image-${{ inputs.expected_sha }}
+          path: ${{ runner.temp }}/agent-runtime-image.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Stop the MCP fake
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/mcp-fake.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/mcp-fake.pid")" 2>/dev/null || true
+          fi

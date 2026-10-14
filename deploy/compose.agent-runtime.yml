@@ -1,0 +1,32 @@
+services:
+  agent-runtime:
+    image: ${DOCKERHUB_IMAGE:-eduardomatuellacostaapps/ca}@${AGENT_RUNTIME_DIGEST:?Set AGENT_RUNTIME_DIGEST to sha256:<published digest>}
+    env_file:
+      - ${AGENT_RUNTIME_ENV_FILE:-../agent-runtime.env}
+    environment:
+      NODE_ENV: production
+      PORT: "3101"
+    ports:
+      - "127.0.0.1:${AGENT_RUNTIME_HOST_PORT:-3101}:3101"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 130s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1G
+          pids: 128
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "5"

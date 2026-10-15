@@ -3,7 +3,7 @@
 O CI de pull requests e pushes para `develop`/`main` valida o código e faz smoke test da imagem, sem publicar no Docker Hub. Uma release estável `vX.Y.Z` publicada a partir de um commit de `main` repete os gates, constrói uma imagem `linux/amd64`, testa essa imagem e publica o mesmo artefato com duas tags:
 
 - `eduardomatuellacostaapps/ca:agent-runtime-<run_number>` identifica o run de publicação do GitHub Actions.
-- `eduardomatuellacostaapps/ca:agent-runtime-<versão>` identifica a release, por exemplo `agent-runtime-0.2.0`.
+- `eduardomatuellacostaapps/ca:agent-runtime-<versão>` identifica a release, por exemplo `agent-runtime-0.2.1`.
 
 As duas tags apontam para o mesmo digest. O fluxo não publica `latest`; falha se uma tag existente apontar para outra versão, commit ou imagem. Reexecutar o mesmo workflow pode reutilizar as tags somente quando os labels da imagem identificam a mesma aplicação, versão e commit.
 
@@ -22,7 +22,7 @@ O GitHub Actions não acessa nem atualiza a VPS. Faça o rollout manualmente usa
 No diretório do clone, crie `deploy/.env` com a imagem escolhida e o caminho do arquivo de ambiente do Runtime:
 
 ```dotenv
-AGENT_RUNTIME_IMAGE=eduardomatuellacostaapps/ca:agent-runtime-0.2.0
+AGENT_RUNTIME_IMAGE=eduardomatuellacostaapps/ca:agent-runtime-0.2.1
 AGENT_RUNTIME_ENV_FILE=../agent-runtime.env
 ```
 

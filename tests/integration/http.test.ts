@@ -1,0 +1,157 @@
+import { describe, expect, it } from 'vitest';
+import { createApp } from '../../src/app.js';
+import { AgentNotFoundError } from '../../src/errors/RuntimeError.js';
+import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
+
+describe('HTTP API', () => {
+  it('validates requests and exposes the health endpoint', async () => {
+    const app = createApp({
+      async run(input: any) {
+        return { statusCode: 200 as const, response: { Success: true as const, ExecutionUUID: 'uuid', Output: { Intent: input.ExpectedOutput.Name } } };
+      },
+    });
+    const server = app.listen(0);
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    try {
+      const health = await fetch(`http://127.0.0.1:${port}/health`);
+      expect(health.status).toBe(200);
+      expect(await health.json()).toEqual({ status: 'ok' });
+
+      const invalid = await fetch(`http://127.0.0.1:${port}/v1/agent-runs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) });
+      expect(invalid.status).toBe(400);
+      expect((await invalid.json()).Error.Code).toBe('INVALID_REQUEST');
+
+      const valid = await fetch(`http://127.0.0.1:${port}/v1/agent-runs`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'chat-orchestrator-poc', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789, Message: 'Olá', ExpectedOutput: { Name: 'Intent', Description: 'Classifique.' }, Extra: 'accepted' }),
+      });
+      expect(valid.status).toBe(200);
+      expect((await valid.json()).Output).toEqual({ Intent: 'Intent' });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it('maps an unknown Agent to HTTP 422 without an execution id', async () => {
+    const app = createApp({
+      async run() { throw new AgentNotFoundError('missing-agent'); },
+    });
+    const server = app.listen(0);
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/v1/agent-runs`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'missing-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, IdProcessLineFlow: 789, Message: 'Olá', ExpectedOutput: { Name: 'Intent', Description: 'Classifique.' } }),
+      });
+      expect(response.status).toBe(422);
+      const body = await response.json();
+      expect(body).toMatchObject({ Success: false, Output: null, Error: { Code: 'AGENT_NOT_FOUND' } });
+      expect(body.ExecutionUUID).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it('exposes AIDocument turn and session close routes without changing the legacy route', async () => {
+    const receivedTurns: any[] = [];
+    const app = createApp({
+      async run(input: any) {
+        return { statusCode: 200 as const, response: { Success: true as const, ExecutionUUID: 'legacy-uuid', Output: { Intent: input.ExpectedOutput.Name } } };
+      },
+      async runTurn(input: any) {
+        receivedTurns.push(input);
+        return { statusCode: 200 as const, response: { Success: true as const, TurnUUID: input.TurnUUID, SessionUUID: 'session-uuid', ExecutionUUID: 'execution-uuid', Agent: input.Agent, Response: 'Ok', Control: { CompletionRequested: false, Reason: null } } };
+      },
+      async closeSession() {
+        return { statusCode: 200 as const, response: { Success: true as const, SessionUUID: 'session-uuid', Status: 'CLOSED' as const } };
+      },
+    });
+    const server = app.listen(0);
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    try {
+      const invalidTurn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ Agent: 'sales-agent' }) });
+      expect(invalidTurn.status).toBe(400);
+
+      const turn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 1, Text: 'Oi' }] }),
+      });
+      expect(turn.status).toBe(200);
+      expect(await turn.json()).toMatchObject({ Success: true, SessionUUID: 'session-uuid' });
+
+      const knowledgeTurn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', TurnUUID: '14ed24ea-0000-4000-8000-000000000611', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 611, Text: 'Reembolso?' }], KnowledgeConfiguration: configuredKnowledge }),
+      });
+      expect(knowledgeTurn.status).toBe(200);
+      expect(receivedTurns.at(-1).KnowledgeConfiguration.References).toHaveLength(2);
+
+      const moduleTurn = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
+          TurnUUID: '14ed24ea-0000-4000-8000-000000000613', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+          Messages: [{ IdMessage: 613, Text: 'Faça um pedido.' }],
+          AgentContext: { Name: 'Pedido de Venda', Objective: 'Montar pedido.', Instructions: 'Use capabilities.', CompletionCriteria: ['Pedido criado'] },
+        }),
+      });
+      expect(moduleTurn.status).toBe(200);
+      expect(receivedTurns.at(-1).AgentContext).toEqual({ Name: 'Pedido de Venda', Objective: 'Montar pedido.', Instructions: 'Use capabilities.', CompletionCriteria: ['Pedido criado'] });
+
+      const invalidModule = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
+          TurnUUID: '14ed24ea-0000-4000-8000-000000000614', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+          Messages: [{ IdMessage: 614, Text: 'Faça um pedido.' }], AgentContext: { Name: 'Pedido', Objective: 'Montar', Instructions: '', CompletionCriteria: [], FlowOptions: {} },
+        }),
+      });
+      expect(invalidModule.status).toBe(400);
+
+      const invalidKnowledge = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', TurnUUID: '14ed24ea-0000-4000-8000-000000000612', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456, Messages: [{ IdMessage: 612, Text: 'Reembolso?' }], KnowledgeConfiguration: { ...configuredKnowledge, APIKey: 'not-allowed' } }),
+      });
+      expect(invalidKnowledge.status).toBe(400);
+
+      const activation = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
+          TurnUUID: '14ed24ea-0000-4000-8000-000000000002', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+          TurnSource: 'ACTIVATION', Messages: [], ProcessContextRevision: 4,
+          ProcessContext: { System: {}, Facts: {}, BusinessReferences: {}, CurrentIntent: {} },
+          ActivationContext: { ActivationUUID: 'activation-1', Source: 'HANDOFF', Context: { Summary: 'Cliente direcionado' } },
+          AgentContext: { Name: 'Pedido', Objective: 'Montar pedido.', Instructions: '', CompletionCriteria: ['Pedido criado'] },
+        }),
+      });
+      expect(activation.status).toBe(200);
+      expect(receivedTurns.at(-1).AgentContext.Objective).toBe('Montar pedido.');
+      expect(receivedTurns.at(-1).Messages).toEqual([]);
+
+      const incoherentActivation = await fetch(`http://127.0.0.1:${port}/v1/agent-turns`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          CompanyUUID: '14ed24ea-0000-4000-8000-000000000001',
+          TurnUUID: '14ed24ea-0000-4000-8000-000000000003', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+          TurnSource: 'ACTIVATION', Messages: [{ IdMessage: 2, Text: 'não deve ser fala' }],
+          ActivationContext: { ActivationUUID: 'activation-2', Source: 'HANDOFF', Context: {} },
+        }),
+      });
+      expect(incoherentActivation.status).toBe(400);
+
+      const close = await fetch(`http://127.0.0.1:${port}/v1/agent-sessions/close`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdCompany: 1003, IdProcessLine: 456, Reason: 'PROCESS_LINE_CLOSED' }),
+      });
+      expect(close.status).toBe(200);
+      expect(await close.json()).toMatchObject({ Success: true, Status: 'CLOSED' });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});

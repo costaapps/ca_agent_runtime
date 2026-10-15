@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1789043331378,
+      "tag": "0000_real_colossus",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1789167688328,
+      "tag": "0001_supreme_cardiac",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1789167796393,
+      "tag": "0002_flawless_blacklash",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1790603057537,
+      "tag": "0003_workable_micromax",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1790627602450,
+      "tag": "0004_orange_morg",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1791919140138,
+      "tag": "0005_tenant_turn_uuid",
+      "breakpoints": true
+    }
+  ]
+}

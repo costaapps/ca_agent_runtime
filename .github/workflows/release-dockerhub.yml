@@ -1,0 +1,99 @@
+name: Publish Agent Runtime image
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-runtime-dockerhub-release
+  cancel-in-progress: false
+
+jobs:
+  validate-release:
+    name: Validate stable release commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+      image: ${{ steps.release.outputs.image }}
+    steps:
+      - name: Check out the exact published tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag, main ancestry, and package version
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: node scripts/ci/validate-release.mjs
+
+  verify-release:
+    name: Run the full release gates and smoke the image
+    needs: validate-release
+    uses: ./.github/workflows/verify.yml
+    with:
+      release_mode: true
+      expected_sha: ${{ needs.validate-release.outputs.sha }}
+      image_version: ${{ needs.validate-release.outputs.version }}
+      image_build_number: ${{ github.run_number }}
+
+  publish:
+    name: Publish verified image to Docker Hub
+    needs: [validate-release, verify-release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_IMAGE }}
+      RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
+      RELEASE_BUILD_NUMBER: ${{ github.run_number }}
+      RELEASE_SHA: ${{ needs.validate-release.outputs.sha }}
+      EXPECTED_IMAGE_SOURCE: https://github.com/costaapps/ca_agent_runtime
+    steps:
+      - name: Check out release utilities from the tested commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.validate-release.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js 24.21.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Download the exact image that passed the smoke test
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: agent-runtime-image-${{ needs.validate-release.outputs.sha }}
+          path: ${{ runner.temp }}/verified-image
+
+      - name: Load the tested image archive
+        run: gzip -dc "$RUNNER_TEMP/verified-image/agent-runtime-image.tar.gz" | docker load
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish without overwriting tags and record the digest
+        id: publish
+        env:
+          LOCAL_IMAGE_REF: ${{ needs.validate-release.outputs.image }}
+          EXPECTED_IMAGE_TITLE: ca-agent-runtime
+          EXPECTED_IMAGE_SOURCE: https://github.com/costaapps/ca_agent_runtime
+          EXPECTED_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          EXPECTED_DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_IMAGE }}
+        run: node scripts/ci/publish-image.mjs

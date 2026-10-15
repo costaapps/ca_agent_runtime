@@ -1,0 +1,267 @@
+import { describe, expect, it } from 'vitest';
+import { Agent, Runner, Usage, type AgentInputItem, type Model, type ModelRequest, type ModelResponse } from '@openai/agents';
+import { AgentRegistry } from '../../src/agents/AgentRegistry.js';
+import { createSalesAgent } from '../../src/agents/aidocument/roots/salesAgent.js';
+import { AgentRuntime } from '../../src/runtime/AgentRuntime.js';
+import { createFakeMcpServer } from '../../src/mcp/fakeMcpServer.js';
+import { createCustomDataExtractor } from '../../src/mcp/customDataExtractor.js';
+import { createToolMetaResolver } from '../../src/mcp/toolMetaResolver.js';
+import { McpObservabilityRegistry, ToolCallTracker } from '../../src/mcp/observability.js';
+import { MemoryRepository } from '../helpers/memoryRepository.js';
+import { MemorySessionRepository } from '../helpers/memorySessionRepository.js';
+import type { RuntimeContextData } from '../../src/runtime/RuntimeContext.js';
+
+function hasToolResult(request: ModelRequest, name: string): boolean {
+  return Array.isArray(request.input) && request.input.some((item) => item.type === 'function_call_result' && item.name === name);
+}
+
+function readToolResult(request: ModelRequest, name: string): Record<string, any> {
+  const item = (request.input as AgentInputItem[]).find((entry) => entry.type === 'function_call_result' && entry.name === name) as any;
+  // MCP errors reach the model as content blocks, even with useStructuredContent.
+  const text = Array.isArray(item.output)
+    ? item.output.find((block: { type: string }) => block.type === 'input_text').text
+    : item.output.text;
+  return JSON.parse(text);
+}
+
+function functionCall(name: string, callId: string, args: Record<string, unknown>): ModelResponse {
+  return { usage: new Usage({ requests: 1, inputTokens: 1, outputTokens: 1, totalTokens: 2 }), output: [{ type: 'function_call', name, callId, arguments: JSON.stringify(args) }] as any };
+}
+
+function message(text: string): ModelResponse {
+  return { usage: new Usage({ requests: 1, inputTokens: 1, outputTokens: 1, totalTokens: 2 }), output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text }] }] as any };
+}
+
+function rootOutput(response: string): string {
+  return JSON.stringify({ Response: response, Control: { CompletionRequested: false, Reason: null, ContextUpdates: [] } });
+}
+
+class DeterministicAIDocumentModel implements Model {
+  requests: ModelRequest[] = [];
+
+  async getResponse(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    const toolNames = request.tools.map((tool) => tool.name);
+    if (toolNames.includes('list_flow_actions')) {
+      if (!hasToolResult(request, 'list_flow_actions')) return functionCall('list_flow_actions', 'flow-list', {});
+      if (!hasToolResult(request, 'describe_flow_action')) return functionCall('describe_flow_action', 'flow-describe', { Action: 'get_customer_details' });
+      if (!hasToolResult(request, 'execute_flow_action')) return functionCall('execute_flow_action', 'flow-execute', { Action: 'get_customer_details', Input: {} });
+      const execution = readToolResult(request, 'execute_flow_action');
+      const failed = execution.Success === false;
+      return message(JSON.stringify({
+        Status: failed ? 'FAILED' : execution.Status,
+        Summary: failed ? 'A capability retornou erro.' : 'Capability executada.',
+        Results: [{
+          Action: execution.Action,
+          OutputJSON: failed || execution.Output === null ? null : JSON.stringify(execution.Output),
+          Error: failed ? execution.Error : null,
+        }],
+        MissingInformation: [],
+      }));
+    }
+    if (toolNames.includes('use_flow_capabilities')) {
+      if (!hasToolResult(request, 'use_flow_capabilities')) return functionCall('use_flow_capabilities', 'root-flow', { Task: 'Consulte os dados do cliente atual.', Context: 'A tarefa deve usar a capability publicada.' });
+      const flow = readToolResult(request, 'use_flow_capabilities');
+      return message(rootOutput(flow.Status === 'FAILED' ? 'A capability não pôde ser executada.' : 'Consultei a capability e encontrei o cliente C000123.'));
+    }
+    return message(rootOutput('Ok'));
+  }
+
+  getStreamedResponse(): AsyncIterable<any> {
+    throw new Error('stream não utilizado neste teste');
+  }
+}
+
+class NavigationDeterministicModel implements Model {
+  requests: ModelRequest[] = [];
+
+  constructor(private readonly navigationSummary = 'Handoff solicitado para Vendas.') {}
+
+  async getResponse(request: ModelRequest): Promise<ModelResponse> {
+    this.requests.push(request);
+    const toolNames = request.tools.map((tool) => tool.name);
+    if (toolNames.includes('list_navigation_destinations')) {
+      if (!hasToolResult(request, 'list_navigation_destinations')) return functionCall('list_navigation_destinations', 'navigation-list', {});
+      if (!hasToolResult(request, 'request_handoff')) return functionCall('request_handoff', 'navigation-request', { DestinationRef: 'nav_sales', Reason: 'Intenção comercial inequívoca.', Summary: 'Cliente deseja comprar.' });
+      return message(JSON.stringify({ Status: 'HANDOFF_REQUESTED', Summary: this.navigationSummary, Destination: 'Vendas', Clarification: null, Error: null }));
+    }
+    if (toolNames.includes('use_navigation')) {
+      if (!hasToolResult(request, 'use_navigation')) return functionCall('use_navigation', 'root-navigation', { Task: 'Encontrar o destino comercial para a compra.', Context: 'O cliente quer comprar um produto.' });
+      return message(rootOutput('Vou direcionar seu atendimento para o destino adequado.'));
+    }
+    return message(rootOutput('Ok'));
+  }
+
+  getStreamedResponse(): AsyncIterable<any> {
+    throw new Error('stream não utilizado neste teste');
+  }
+}
+
+function createTestRuntime(model: DeterministicAIDocumentModel, server: ReturnType<typeof createFakeMcpServer>, repository: MemoryRepository, sessionRepository: MemorySessionRepository) {
+  const observability = new McpObservabilityRegistry();
+  const tracker = new ToolCallTracker();
+  server.toolMetaResolver = createToolMetaResolver(observability, tracker) as any;
+  server.customDataExtractor = createCustomDataExtractor(observability, tracker) as any;
+  const registry = new AgentRegistry(undefined, {
+    'sales-agent': (context) => createSalesAgent({ ...context, model: model as any }),
+  });
+  const runtime = new AgentRuntime({
+    repository,
+    sessionRepository,
+    registry,
+    runner: {
+      async run(agent: Agent<RuntimeContextData, any>, input: string | AgentInputItem[], context: RuntimeContextData, _tracing: any, session?: any) {
+        const runner = new Runner({ model: model as any, tracingDisabled: true, workflowName: 'test' });
+        const result = await runner.run(agent, input, { context, stream: false, session });
+        return { finalOutput: result.finalOutput, lastAgent: result.lastAgent ? { name: result.lastAgent.name } : undefined };
+      },
+    },
+    mcpServer: server,
+    observability,
+    model: 'test-model',
+    tenantScope: { CompanyUUID: '14ed24ea-0000-4000-8000-000000000001', IdDatabase: 8, IdCompany: 1003 },
+    tracingEnabled: false,
+    traceIncludeSensitiveData: false,
+  });
+  return { runtime, observability };
+}
+
+describe('AIDocument full Agents SDK path with fake model', () => {
+  it('runs RootAgent -> use_flow_capabilities -> FlowAgent -> list/describe/execute and persists Session items', async () => {
+    const model = new DeterministicAIDocumentModel();
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const server = createFakeMcpServer();
+    const { runtime } = createTestRuntime(model, server, repository, sessionRepository);
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000001', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 456,
+      Messages: [{ IdMessage: 1001, Text: 'Consulte o cliente atual.' }],
+    });
+
+    expect(result).toMatchObject({ statusCode: 200, response: { Success: true, Response: 'Consultei a capability e encontrei o cliente C000123.' } });
+    expect(model.requests.some((request) => request.tools.some((tool) => tool.name === 'use_flow_capabilities'))).toBe(true);
+    expect(model.requests.some((request) => request.tools.some((tool) => tool.name === 'list_flow_actions'))).toBe(true);
+    const flowRequest = model.requests.find((request) => request.tools.some((tool) => tool.name === 'list_flow_actions'));
+    expect(flowRequest?.outputType).toMatchObject({ type: 'json_schema' });
+    expect(JSON.stringify(flowRequest?.outputType)).toContain('OutputJSON');
+    const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
+    const flowResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_flow_capabilities') as any;
+    expect(JSON.parse(flowResult.output.text)).toMatchObject({ Results: [{ OutputJSON: '{"CustomerCode":"C000123"}' }] });
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL').map((entry) => entry.data.ToolName)).toEqual(['list_flow_actions', 'describe_flow_action', 'execute_flow_action']);
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_RESULT').map((entry) => entry.data.ToolName)).toEqual(['list_flow_actions', 'describe_flow_action', 'execute_flow_action']);
+    const sessionUUID = sessionRepository.sessions[0]?.SessionUUID;
+    expect(sessionUUID).toBeDefined();
+    expect(await sessionRepository.getItems(sessionUUID!)).toEqual(expect.arrayContaining([{ role: 'user', content: 'Consulte o cliente atual.' }]));
+    expect(sessionRepository.executionUUIDs.get(sessionUUID!)).toEqual(expect.arrayContaining([repository.executions[0]!.data.ExecutionUUID]));
+  });
+
+  it.each([
+    { Code: 'FLOW_ACTION_ALREADY_EXECUTED', Message: 'Já executada.' },
+    { Code: 'CORE_TIMEOUT', Message: 'Tempo excedido ao executar a capability.' },
+  ])('maps execute_flow_action Success=false/isError=true to FlowAgent FAILED preserving $Code', async (error) => {
+    const model = new DeterministicAIDocumentModel();
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const server = createFakeMcpServer({ executeFlowError: error });
+    const { runtime } = createTestRuntime(model, server, repository, sessionRepository);
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000002', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 457,
+      Messages: [{ IdMessage: 1002, Text: 'Consulte o cliente atual.' }],
+    });
+
+    expect(result, JSON.stringify(result)).toMatchObject({ statusCode: 200, response: { Success: true, Response: 'A capability não pôde ser executada.' } });
+    const executeRequest = model.requests.find((request) => request.tools.some((tool) => tool.name === 'execute_flow_action') && hasToolResult(request, 'execute_flow_action'))!;
+    expect(readToolResult(executeRequest, 'execute_flow_action')).toEqual({
+      Success: false, Action: 'get_customer_details', Output: null, Error: error,
+    });
+    const rootRequest = model.requests.find((request) => request.tools.some((tool) => tool.name === 'use_flow_capabilities') && hasToolResult(request, 'use_flow_capabilities'))!;
+    expect(readToolResult(rootRequest, 'use_flow_capabilities')).toEqual({
+      Status: 'FAILED', Summary: 'A capability retornou erro.',
+      Results: [{ Action: 'get_customer_details', OutputJSON: null, Error: error }],
+      MissingInformation: [],
+    });
+    const toolLogs = repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_RESULT' && entry.data.ToolName === 'execute_flow_action');
+    expect(toolLogs).toHaveLength(1);
+    expect(toolLogs[0]!.data.Status).toBe('ERROR');
+    expect(JSON.parse(toolLogs[0]!.data.OutputJSON!)).toMatchObject({
+      isError: true, structuredContent: { Success: false, Output: null, Error: error },
+    });
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL').map((entry) => entry.data.ToolName)).toEqual([
+      'list_flow_actions', 'describe_flow_action', 'execute_flow_action',
+    ]);
+    expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_END')).toBe(true);
+    expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_ERROR')).toBe(false);
+  });
+
+  it('runs RootAgent -> use_navigation -> NavigationAgent -> list/request_handoff', async () => {
+    const model = new NavigationDeterministicModel();
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const server = createFakeMcpServer();
+    const { runtime } = createTestRuntime(model as any, server, repository, sessionRepository);
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000003', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 458,
+      Messages: [{ IdMessage: 1003, Text: 'Quero comprar um produto.' }],
+    });
+
+    expect(result).toMatchObject({ statusCode: 200, response: { Success: true, Response: 'Vou direcionar seu atendimento para o destino adequado.' } });
+    expect(model.requests.some((request) => request.tools.some((tool) => tool.name === 'use_navigation'))).toBe(true);
+    expect(model.requests.some((request) => request.tools.some((tool) => tool.name === 'list_navigation_destinations'))).toBe(true);
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL').map((entry) => entry.data.ToolName)).toEqual(['list_navigation_destinations', 'request_handoff']);
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_RESULT').map((entry) => entry.data.ToolName)).toEqual(['list_navigation_destinations', 'request_handoff']);
+    const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
+    const navigationResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_navigation') as any;
+    expect(JSON.parse(navigationResult.output.text)).toMatchObject({ Status: 'HANDOFF_REQUESTED', Destination: 'Vendas' });
+  });
+
+  it('passes AIReference to NavigationAgent via MCP listing without leaking it through use_navigation', async () => {
+    const aiReference = 'Consulta os produtos ativos e preços, monta tabela e envia PDF ao cliente.';
+    const model = new NavigationDeterministicModel(`AIReference: ${aiReference}`);
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const server = createFakeMcpServer({ navigationDestinations: [{
+      DestinationRef: 'nav_sales', Kind: 'MENU', Description: 'Catálogo de produtos',
+      MenuGroup: 'Atendimento', Keywords: 'produtos catálogo preços', AIReference: aiReference,
+    }] });
+    const { runtime } = createTestRuntime(model as any, server, repository, sessionRepository);
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000005', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 460,
+      Messages: [{ IdMessage: 1005, Text: 'Quero uma relação de todos os produtos e preços.' }],
+    });
+
+    expect(result.statusCode).toBe(200);
+    const navigationRequests = model.requests.filter((request) => request.tools.some((tool) => tool.name === 'list_navigation_destinations'));
+    expect(navigationRequests.some((request) => JSON.stringify(request.input).includes(aiReference))).toBe(true);
+    const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
+    const navigationResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_navigation') as any;
+    expect(JSON.parse(navigationResult.output.text)).toMatchObject({ Status: 'HANDOFF_REQUESTED', Destination: 'Vendas' });
+    expect(navigationResult.output.text).not.toContain('AIReference');
+    expect(navigationResult.output.text).not.toContain(aiReference);
+    expect(repository.logs.filter((entry) => entry.data.EventType === 'MCP_TOOL_CALL').map((entry) => entry.data.ToolName)).toEqual([
+      'list_navigation_destinations', 'request_handoff',
+    ]);
+  });
+
+  it('keeps a Navigation MCP failure inside use_navigation without claiming a handoff', async () => {
+    const model = new NavigationDeterministicModel();
+    const repository = new MemoryRepository();
+    const sessionRepository = new MemorySessionRepository(repository);
+    const server = createFakeMcpServer({ requestHandoffError: { Code: 'CORE_CONTRACT_ERROR', Message: 'Contrato de handoff inválido.' } });
+    const { runtime } = createTestRuntime(model as any, server, repository, sessionRepository);
+
+    const result = await runtime.runTurn({
+      TurnUUID: '14ed24ea-0000-4000-8000-000000000004', Agent: 'sales-agent', IdCompany: 1003, IdChat: 123, IdProcessLine: 459,
+      Messages: [{ IdMessage: 1004, Text: 'Quero comprar um produto.' }],
+    });
+
+    expect(result.statusCode).toBe(200);
+    const rootFollowUpInput = model.requests.at(-1)?.input as AgentInputItem[];
+    const navigationResult = rootFollowUpInput.find((item) => item.type === 'function_call_result' && item.name === 'use_navigation') as any;
+    expect(JSON.parse(navigationResult.output.text)).toMatchObject({ Status: 'FAILED', Error: { Code: 'CORE_CONTRACT_ERROR' } });
+    expect(repository.logs.some((entry) => entry.data.EventType === 'RUNTIME_ERROR')).toBe(false);
+  });
+});

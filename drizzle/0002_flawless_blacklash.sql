@@ -1,0 +1,1 @@
+CREATE INDEX `IX_AIAgentExecution_Session` ON `AIAgentExecution` (`IdAIAgentSession`);

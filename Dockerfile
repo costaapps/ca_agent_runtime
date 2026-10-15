@@ -32,7 +32,7 @@ RUN apt-get update \
         /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
         /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v1.22.22
 
-ARG OCI_VERSION=0.2.0
+ARG OCI_VERSION=0.2.1
 ARG OCI_REVISION=unknown
 ARG OCI_SOURCE=https://github.com/costaapps/ca_agent_runtime
 

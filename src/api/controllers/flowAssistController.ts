@@ -9,8 +9,8 @@ export function createFlowAssistController(runtime: Pick<FlowAssistRuntime, 'run
     const parsed = FlowAssistInputSchema.safeParse(request.body);
     if (!parsed.success) {
       response.status(400).json(request.body?.Mode === 'CHECK'
-        ? { Success: false, Mode: 'CHECK', Results: [], Error: { Code: ErrorCodes.InvalidRequest, Message: 'Payload inválido.' } }
-        : { Success: false, Proposals: [], Error: { Code: ErrorCodes.InvalidRequest, Message: 'Payload inválido.' } });
+        ? { Success: false, Mode: 'CHECK', Results: [], ...(request.body?.ProtocolVersion === 2 ? { ProtocolVersion: 2 } : {}), Error: { Code: ErrorCodes.InvalidRequest, Message: 'Payload inválido.' } }
+        : { Success: false, Proposals: [], ...(request.body?.ProtocolVersion === 2 ? { ProtocolVersion: 2 } : {}), Error: { Code: ErrorCodes.InvalidRequest, Message: 'Payload inválido.' } });
       return;
     }
     try {
@@ -20,13 +20,13 @@ export function createFlowAssistController(runtime: Pick<FlowAssistRuntime, 'run
       const runtimeHttpError = getRuntimeHttpError(error);
       if (runtimeHttpError) {
         response.status(runtimeHttpError.statusCode).json(parsed.data.Mode === 'CHECK'
-          ? { Success: false, Mode: 'CHECK', Results: [], Error: { Code: runtimeHttpError.code, Message: runtimeHttpError.message } }
-          : { Success: false, Proposals: [], Error: { Code: runtimeHttpError.code, Message: runtimeHttpError.message } });
+          ? { Success: false, Mode: 'CHECK', Results: [], ...('ProtocolVersion' in parsed.data ? { ProtocolVersion: parsed.data.ProtocolVersion } : {}), Error: { Code: runtimeHttpError.code, Message: runtimeHttpError.message } }
+          : { Success: false, Proposals: [], ...('ProtocolVersion' in parsed.data ? { ProtocolVersion: parsed.data.ProtocolVersion } : {}), Error: { Code: runtimeHttpError.code, Message: runtimeHttpError.message } });
         return;
       }
       response.status(500).json(parsed.data.Mode === 'CHECK'
-        ? { Success: false, Mode: 'CHECK', Results: [], Error: { Code: ErrorCodes.AgentRuntimeError, Message: 'Não foi possível concluir o Agent Assist.' } }
-        : { Success: false, Proposals: [], Error: { Code: ErrorCodes.AgentRuntimeError, Message: 'Não foi possível concluir o Agent Assist.' } });
+        ? { Success: false, Mode: 'CHECK', Results: [], ...('ProtocolVersion' in parsed.data ? { ProtocolVersion: parsed.data.ProtocolVersion } : {}), Error: { Code: ErrorCodes.AgentRuntimeError, Message: 'Não foi possível concluir o Agent Assist.' } }
+        : { Success: false, Proposals: [], ...('ProtocolVersion' in parsed.data ? { ProtocolVersion: parsed.data.ProtocolVersion } : {}), Error: { Code: ErrorCodes.AgentRuntimeError, Message: 'Não foi possível concluir o Agent Assist.' } });
     }
   };
 }

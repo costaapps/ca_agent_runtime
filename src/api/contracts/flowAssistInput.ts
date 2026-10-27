@@ -80,11 +80,62 @@ export const FlowAssistCheckInputSchema = FlowAssistBaseSchema.safeExtend({
   }).strict(),
 }).superRefine(validateSharedInput);
 
+const FlowAssistStepSchema = z.object({
+  IdProcessLineFlow: IdSchema,
+  IdFlow: IdSchema.nullable(),
+  Step: z.number().int().positive().nullable(),
+  ObjectType: z.string().min(1).max(40),
+  Description: z.string(),
+  ObjectDescription: z.string().nullable().optional(),
+  Resolved: z.boolean(),
+  CurrentValue: z.string().nullable(),
+}).strict();
+
+const FlowAssistV2BaseSchema = FlowAssistBaseSchema.safeExtend({
+  ProtocolVersion: z.literal(2),
+  StepManifest: z.array(FlowAssistStepSchema),
+  Continuation: z.object({
+    Enabled: z.boolean(),
+    MaxNextAgentAssists: z.number().int().min(0).max(3),
+    CandidateTargets: z.array(IdSchema).max(500),
+  }).strict(),
+}).superRefine((input, context) => {
+  const stepIds = input.StepManifest.map((step) => step.IdProcessLineFlow);
+  const ordered = input.StepManifest.flatMap((step) => step.Step === null ? [] : [step.Step]);
+  if (new Set(stepIds).size !== stepIds.length) context.addIssue({ code: 'custom', path: ['StepManifest'], message: 'IDs de etapas duplicados.' });
+  if (new Set(ordered).size !== ordered.length) context.addIssue({ code: 'custom', path: ['StepManifest'], message: 'Steps dinâmicos duplicados.' });
+  const candidates = input.Continuation.CandidateTargets;
+  if (new Set(candidates).size !== candidates.length) context.addIssue({ code: 'custom', path: ['Continuation', 'CandidateTargets'], message: 'Targets candidatos duplicados.' });
+  const available = new Set(stepIds);
+  if (candidates.some((id) => !available.has(id))) context.addIssue({ code: 'custom', path: ['Continuation', 'CandidateTargets'], message: 'Target candidato ausente do manifesto.' });
+  if (!input.Continuation.Enabled && candidates.length) context.addIssue({ code: 'custom', path: ['Continuation'], message: 'Continuação desabilitada deve ter CandidateTargets vazio.' });
+});
+
+export const FlowAssistV2PrefillInputSchema = FlowAssistV2BaseSchema.safeExtend({
+  Mode: z.literal('PREFILL').optional(),
+  Targets: z.array(FlowAssistTargetSchema),
+}).superRefine(validateSharedInput);
+
+export const FlowAssistV2CheckInputSchema = FlowAssistV2BaseSchema.safeExtend({
+  Mode: z.literal('CHECK'),
+  Targets: z.array(FlowAssistCheckTargetSchema),
+  Check: z.object({
+    Repair: z.boolean(),
+    RequireAll: z.boolean().optional(),
+    OnRuntimeFailure: z.enum(['BLOCK', 'CONTINUE']).optional(),
+    BlockMessage: z.string().optional(),
+  }).strict(),
+}).superRefine(validateSharedInput);
+
 // Legacy PREFILL payloads have no Mode. CHECK always uses an explicit discriminator.
-export const FlowAssistInputSchema = z.union([FlowAssistCheckInputSchema, FlowAssistPrefillInputSchema]);
+export const FlowAssistInputSchema = z.union([
+  FlowAssistV2CheckInputSchema, FlowAssistV2PrefillInputSchema,
+  FlowAssistCheckInputSchema, FlowAssistPrefillInputSchema,
+]);
 export type ParsedFlowAssistInput = z.infer<typeof FlowAssistInputSchema>;
 export type ParsedFlowAssistPrefillInput = z.infer<typeof FlowAssistPrefillInputSchema>;
 export type ParsedFlowAssistCheckInput = z.infer<typeof FlowAssistCheckInputSchema>;
+export type FlowAssistV2Input = z.infer<typeof FlowAssistV2PrefillInputSchema> | z.infer<typeof FlowAssistV2CheckInputSchema>;
 export type FlowAssistPrefillInput = Omit<ParsedFlowAssistPrefillInput, 'CompanyUUID'> & { CompanyUUID?: string };
 export type FlowAssistCheckInput = Omit<ParsedFlowAssistCheckInput, 'CompanyUUID'> & { CompanyUUID?: string };
-export type FlowAssistInput = FlowAssistPrefillInput | FlowAssistCheckInput;
+export type FlowAssistInput = FlowAssistPrefillInput | FlowAssistCheckInput | FlowAssistV2Input;

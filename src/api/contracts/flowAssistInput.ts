@@ -83,7 +83,7 @@ export const FlowAssistCheckInputSchema = FlowAssistBaseSchema.safeExtend({
 const FlowAssistStepSchema = z.object({
   IdProcessLineFlow: IdSchema,
   IdFlow: IdSchema.nullable(),
-  Step: z.number().int().positive().nullable(),
+  Step: z.number().int().nonnegative().nullable(),
   ObjectType: z.string().min(1).max(40),
   Description: z.string(),
   ObjectDescription: z.string().nullable().optional(),

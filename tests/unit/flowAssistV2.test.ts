@@ -14,12 +14,18 @@ const output = {
 describe('Flow Assist v2 contract', () => {
   it('accepts the complete stable step manifest and bounded continuation request', () => {
     expect(FlowAssistInputSchema.parse(flowAssistV2Input)).toEqual(flowAssistV2Input);
+    const withZeroStep = {
+      ...flowAssistV2Input,
+      StepManifest: flowAssistV2Input.StepManifest.map((step, index) => index === 0 ? { ...step, Step: 0 } : step),
+    };
+    expect(FlowAssistInputSchema.safeParse(withZeroStep).success).toBe(true);
     const item = flowAssistInputItems(flowAssistV2Input)[0];
     const payload = JSON.parse((item as { content: string }).content);
     expect(payload).toMatchObject({ ProtocolVersion: 2, StepManifest: flowAssistV2Input.StepManifest, Continuation: flowAssistV2Input.Continuation });
   });
 
   it.each([
+    { StepManifest: flowAssistV2Input.StepManifest.map((step, index) => index === 0 ? { ...step, Step: -1 } : step) },
     { StepManifest: [...flowAssistV2Input.StepManifest, flowAssistV2Input.StepManifest[0]] },
     { Continuation: { ...flowAssistV2Input.Continuation, CandidateTargets: [99999] } },
     { Continuation: { ...flowAssistV2Input.Continuation, MaxNextAgentAssists: 4 } },

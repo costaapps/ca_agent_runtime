@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { ModelBehaviorError } from '@openai/agents';
 import { ZodError } from 'zod';
-import type { FlowAssistCheckInput, FlowAssistInput } from '../api/contracts/flowAssistInput.js';
-import { FlowAssistAgentOutputSchema, FlowAssistCheckAgentOutputSchema, type FlowAssistAgentOutput, type FlowAssistCheckAgentOutput, type FlowAssistOutput } from '../api/contracts/flowAssistOutput.js';
+import type { FlowAssistCheckInput, FlowAssistInput, FlowAssistV2Input } from '../api/contracts/flowAssistInput.js';
+import { FlowAssistAgentOutputSchema, FlowAssistCheckAgentOutputSchema, FlowAssistV2AgentOutputSchema, type FlowAssistAgentOutput, type FlowAssistCheckAgentOutput, type FlowAssistOutput } from '../api/contracts/flowAssistOutput.js';
 import { AgentRegistry } from '../agents/AgentRegistry.js';
 import { flowAssistInputItems } from '../agents/flow-assist/flowAssistAgent.js';
 import type { AiExecutionRepository } from '../database/repositories/aiExecutionRepository.js';
@@ -65,6 +65,31 @@ export function validateFlowAssistResults(output: unknown, input: FlowAssistChec
   return parsed.data;
 }
 
+export function validateFlowAssistV2Output(output: unknown, input: FlowAssistV2Input) {
+  const parsed = FlowAssistV2AgentOutputSchema.safeParse(output);
+  if (!parsed.success) throw new RuntimeError(ErrorCodes.InvalidAgentOutput, 'Output v2 do Agent Assist inválido.');
+  const candidateIds = new Set(input.Continuation.CandidateTargets);
+  const stepIds = new Set(input.StepManifest.map((step) => step.IdProcessLineFlow));
+  const next = parsed.data.NextAgentAssists ?? [];
+  if (next.length > input.Continuation.MaxNextAgentAssists || (!input.Continuation.Enabled && next.length)) {
+    throw new RuntimeError(ErrorCodes.InvalidAgentOutput, 'Continuação excede a autorização do Core.');
+  }
+  for (const assist of next) {
+    if (assist.Agent !== input.Agent || !stepIds.has(assist.AfterIdProcessLineFlow)
+      || assist.TargetIdProcessLineFlows.some((id) => !candidateIds.has(id))) {
+      throw new RuntimeError(ErrorCodes.InvalidAgentOutput, 'Continuação contém Agent, anchor ou Target não autorizado.');
+    }
+  }
+  if (input.Mode === 'CHECK') {
+    const { NextAgentAssists: _nextAgentAssists, ...checkOutput } = parsed.data;
+    const checked = validateFlowAssistResults(checkOutput, input);
+    return { ...checked, ...(parsed.data.NextAgentAssists ? { NextAgentAssists: next } : {}) };
+  }
+  const { NextAgentAssists: _nextAgentAssists, ...prefillOutput } = parsed.data;
+  const prefill = validateFlowAssistProposals(prefillOutput, input);
+  return { ...prefill, ...(parsed.data.NextAgentAssists ? { NextAgentAssists: next } : {}) };
+}
+
 export class FlowAssistRuntime {
   constructor(private readonly options: FlowAssistRuntimeOptions) {}
 
@@ -90,6 +115,7 @@ export class FlowAssistRuntime {
           Message: JSON.stringify(input.Messages),
           RuntimeConfigJSON: JSON.stringify({
             Mode: 'FLOW_ASSIST', ...(input.Mode === 'CHECK' ? { AssistMode: 'CHECK' } : {}),
+            ...('ProtocolVersion' in input ? { ProtocolVersion: input.ProtocolVersion } : {}),
             Model: this.options.model, TracingEnabled: this.options.tracingEnabled,
             ...(this.options.tenantScope ? { Tenant: { CompanyUUID: this.options.tenantScope.CompanyUUID, IdDatabase: this.options.tenantScope.IdDatabase } } : {}),
           }),
@@ -118,7 +144,9 @@ export class FlowAssistRuntime {
       };
       let knowledgeSearchFailed = false;
       const agent = this.options.registry.buildFlowAssist(input.Agent, {
-        model: this.options.model, mode: input.Mode ?? 'PREFILL', runtimeContext: context, logger,
+        model: this.options.model, mode: input.Mode ?? 'PREFILL',
+        protocolVersion: 'ProtocolVersion' in input ? input.ProtocolVersion : 1,
+        runtimeContext: context, logger,
         knowledgeConfiguration: input.KnowledgeConfiguration,
         knowledgeSearchService: this.options.knowledgeSearchService,
         onKnowledgeSearchError: () => { knowledgeSearchFailed = true; },
@@ -144,9 +172,11 @@ export class FlowAssistRuntime {
         throw asRuntimeError(error, ErrorCodes.AgentExecutionError);
       });
       if (knowledgeSearchFailed) throw new RuntimeError(ErrorCodes.AgentExecutionError, 'Falha na pesquisa de Knowledge.');
-      const output = input.Mode === 'CHECK'
-        ? validateFlowAssistResults(result.finalOutput, input)
-        : validateFlowAssistProposals(result.finalOutput, input);
+      const output = 'ProtocolVersion' in input
+        ? validateFlowAssistV2Output(result.finalOutput, input)
+        : input.Mode === 'CHECK'
+          ? validateFlowAssistResults(result.finalOutput, input)
+          : validateFlowAssistProposals(result.finalOutput, input);
       await persist(() => logger!.agentOutput(agent.name, output));
       try {
         await this.options.repository.finishExecution(executionId, {
@@ -154,7 +184,8 @@ export class FlowAssistRuntime {
         });
         await logger.runtimeEnd(duration());
       } catch (error) { throw asDatabaseRuntimeError(error); }
-      return { statusCode: 200, response: { Success: true, ExecutionUUID: executionUUID, ...output } };
+      return { statusCode: 200, response: { Success: true, ExecutionUUID: executionUUID,
+        ...('ProtocolVersion' in input ? { ProtocolVersion: input.ProtocolVersion } : {}), ...output } };
     } catch (error) {
       const runtimeError = asRuntimeError(error);
       // Never return partial proposals on failure. Core owns fail-open and Step.
@@ -173,8 +204,8 @@ export class FlowAssistRuntime {
         statusCode: runtimeError.code === ErrorCodes.AgentNotFound ? 422
           : runtimeError.code === ErrorCodes.TenantDatabaseUnavailable ? 503 : 500,
         response: input.Mode === 'CHECK'
-          ? { Success: false, ExecutionUUID: executionUUID, Mode: 'CHECK', Results: [], Error: { Code: runtimeError.code, Message: runtimeError.code === ErrorCodes.TenantDatabaseUnavailable ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE : 'Não foi possível concluir o Agent Assist.' } }
-          : { Success: false, ExecutionUUID: executionUUID, Proposals: [], Error: { Code: runtimeError.code, Message: runtimeError.code === ErrorCodes.TenantDatabaseUnavailable ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE : 'Não foi possível concluir o Agent Assist.' } },
+          ? { Success: false, ExecutionUUID: executionUUID, Mode: 'CHECK', Results: [], ...('ProtocolVersion' in input ? { ProtocolVersion: input.ProtocolVersion } : {}), Error: { Code: runtimeError.code, Message: runtimeError.code === ErrorCodes.TenantDatabaseUnavailable ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE : 'Não foi possível concluir o Agent Assist.' } }
+          : { Success: false, ExecutionUUID: executionUUID, Proposals: [], ...('ProtocolVersion' in input ? { ProtocolVersion: input.ProtocolVersion } : {}), Error: { Code: runtimeError.code, Message: runtimeError.code === ErrorCodes.TenantDatabaseUnavailable ? SAFE_TENANT_DATABASE_UNAVAILABLE_MESSAGE : 'Não foi possível concluir o Agent Assist.' } },
       };
     }
   }

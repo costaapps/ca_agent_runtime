@@ -60,6 +60,18 @@ export const FlowAssistCheckAgentOutputSchema = z.object({
   });
 });
 
+const NextAgentAssistSchema = z.object({
+  Agent: z.string().min(1).max(100),
+  Mode: z.enum(['PREFILL', 'CHECK']),
+  Instructions: z.string().max(5000),
+  AfterIdProcessLineFlow: z.number().int().positive(),
+  TargetIdProcessLineFlows: z.array(z.number().int().positive()).min(1).max(50),
+}).strict().superRefine((assist, context) => {
+  if (new Set(assist.TargetIdProcessLineFlows).size !== assist.TargetIdProcessLineFlows.length) {
+    context.addIssue({ code: 'custom', path: ['TargetIdProcessLineFlows'], message: 'Targets duplicados.' });
+  }
+});
+
 export const FlowAssistCheckSuccessSchema = FlowAssistCheckAgentOutputSchema.safeExtend({
   Success: z.literal(true),
   ExecutionUUID: z.uuid(),
@@ -73,7 +85,25 @@ export const FlowAssistCheckFailureSchema = z.object({
   Error: z.object({ Code: z.string(), Message: z.string() }).strict(),
 }).strict();
 
-export const FlowAssistOutputSchema = z.union([FlowAssistSuccessSchema, FlowAssistFailureSchema, FlowAssistCheckSuccessSchema, FlowAssistCheckFailureSchema]);
+const FlowAssistV2OutputFields = {
+  NextAgentAssists: z.array(NextAgentAssistSchema).max(3),
+};
+
+export const FlowAssistV2PrefillAgentOutputSchema = FlowAssistAgentOutputSchema.safeExtend(FlowAssistV2OutputFields);
+export const FlowAssistV2CheckAgentOutputSchema = FlowAssistCheckAgentOutputSchema.safeExtend(FlowAssistV2OutputFields);
+export const FlowAssistV2AgentOutputSchema = z.union([FlowAssistV2PrefillAgentOutputSchema, FlowAssistV2CheckAgentOutputSchema]);
+
+export const FlowAssistV2SuccessSchema = z.union([
+  FlowAssistSuccessSchema.safeExtend({ ProtocolVersion: z.literal(2), ...FlowAssistV2OutputFields }),
+  FlowAssistCheckSuccessSchema.safeExtend({ ProtocolVersion: z.literal(2), ...FlowAssistV2OutputFields }),
+]);
+
+export const FlowAssistV2FailureSchema = z.union([
+  FlowAssistFailureSchema.safeExtend({ ProtocolVersion: z.literal(2) }),
+  FlowAssistCheckFailureSchema.safeExtend({ ProtocolVersion: z.literal(2) }),
+]);
+
+export const FlowAssistOutputSchema = z.union([FlowAssistV2SuccessSchema, FlowAssistV2FailureSchema, FlowAssistSuccessSchema, FlowAssistFailureSchema, FlowAssistCheckSuccessSchema, FlowAssistCheckFailureSchema]);
 export type FlowAssistAgentOutput = z.infer<typeof FlowAssistAgentOutputSchema>;
 export type FlowAssistCheckAgentOutput = z.infer<typeof FlowAssistCheckAgentOutputSchema>;
 export type FlowAssistOutput = z.infer<typeof FlowAssistOutputSchema>;

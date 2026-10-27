@@ -1,6 +1,6 @@
 import { Agent, system, type AgentInputItem } from '@openai/agents';
 import type { FlowAssistInput } from '../../api/contracts/flowAssistInput.js';
-import { FlowAssistAgentOutputSchema, FlowAssistCheckAgentOutputSchema } from '../../api/contracts/flowAssistOutput.js';
+import { FlowAssistAgentOutputSchema, FlowAssistCheckAgentOutputSchema, FlowAssistV2CheckAgentOutputSchema, FlowAssistV2PrefillAgentOutputSchema } from '../../api/contracts/flowAssistOutput.js';
 import type { KnowledgeConfiguration } from '../../api/contracts/knowledgeConfiguration.js';
 import type { KnowledgeSearchService } from '../../knowledge/KnowledgeSearchService.js';
 import { AGENT_PLATFORM_KNOWLEDGE_TECHNICAL_INSTRUCTIONS } from '../../knowledge/knowledgeTechnicalInstructions.js';
@@ -57,6 +57,7 @@ export const FLOW_ASSIST_CHECK_INSTRUCTIONS = [
 export interface FlowAssistAgentBuildContext {
   model: string;
   mode?: 'PREFILL' | 'CHECK';
+  protocolVersion?: 1 | 2;
   runtimeContext?: RuntimeContextData;
   logger?: ExecutionLogger;
   knowledgeConfiguration?: KnowledgeConfiguration;
@@ -75,16 +76,23 @@ export function createFlowAssistAgent(contextOrModel: FlowAssistAgentBuildContex
     ? [createSearchKnowledgeTool(context.knowledgeConfiguration!, context.knowledgeSearchService!, context.runtimeContext!, context.logger, 'FlowAssistAgent', context.onKnowledgeSearchError)]
     : [];
   const modeInstructions = isCheck ? FLOW_ASSIST_CHECK_INSTRUCTIONS : prefillInstructions(references.length > 0);
+  const continuationInstructions = context.protocolVersion === 2 ? [
+    'O StepManifest é a sequência completa e atual do ProcessLine; Step pode ser null. Use exclusivamente IDs existentes nesse manifesto, sem inferir posição por Step ou inventar IDs.',
+    'A continuação é permitida somente quando Continuation.Enabled=true. Retorne sempre NextAgentAssists, com zero ou mais ocorrências (até MaxNextAgentAssists), para continuar tarefas que ainda dependam de novos valores. Cada ocorrência deve informar Agent, Mode, Instructions, AfterIdProcessLineFlow e TargetIdProcessLineFlows.',
+    'Use somente o Agent desta execução, anchors presentes no StepManifest e Targets presentes em Continuation.CandidateTargets. Não crie ocorrências para executar SQL, APIs, ferramentas ou outros objetos. Quando não propuser continuação, retorne NextAgentAssists=[].',
+  ].join('\n') : '';
   const knowledgeInstructions = references.length ? [
     AGENT_PLATFORM_KNOWLEDGE_TECHNICAL_INSTRUCTIONS,
     `[KNOWLEDGE CONFIGURATION]\n${references.map((reference) => `${reference.Reference}: ${reference.Name}${reference.Description ? ` — ${reference.Description}` : ''}`).join('\n')}`,
   ] : [];
-  const instructions = [modeInstructions, ...knowledgeInstructions].join('\n\n');
-  return new Agent<RuntimeContextData, typeof FlowAssistAgentOutputSchema | typeof FlowAssistCheckAgentOutputSchema>({
+  const instructions = [modeInstructions, ...knowledgeInstructions, continuationInstructions].filter(Boolean).join('\n\n');
+  return new Agent<RuntimeContextData, typeof FlowAssistAgentOutputSchema | typeof FlowAssistCheckAgentOutputSchema | typeof FlowAssistV2CheckAgentOutputSchema | typeof FlowAssistV2PrefillAgentOutputSchema>({
     name: 'FlowAssistAgent',
     model: context.model,
     instructions,
-    outputType: isCheck ? FlowAssistCheckAgentOutputSchema : FlowAssistAgentOutputSchema,
+    outputType: context.protocolVersion === 2
+      ? isCheck ? FlowAssistV2CheckAgentOutputSchema : FlowAssistV2PrefillAgentOutputSchema
+      : isCheck ? FlowAssistCheckAgentOutputSchema : FlowAssistAgentOutputSchema,
     tools,
     mcpServers: [],
     handoffs: [],
@@ -103,6 +111,11 @@ export function flowAssistInputItems(input: FlowAssistInput): AgentInputItem[] {
     Targets: input.Targets,
     Known: input.Known ?? [],
     ...(input.Mode === 'CHECK' ? { Mode: 'CHECK', Check: input.Check } : {}),
+    ...('ProtocolVersion' in input && input.ProtocolVersion === 2 ? {
+      ProtocolVersion: 2,
+      StepManifest: input.StepManifest,
+      Continuation: input.Continuation,
+    } : {}),
   };
   return [system(JSON.stringify(payload))];
 }

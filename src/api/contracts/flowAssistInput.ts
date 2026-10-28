@@ -2,6 +2,24 @@ import { z } from 'zod';
 import { KnowledgeConfigurationSchema, type KnowledgeConfiguration } from './knowledgeConfiguration.js';
 
 const IdSchema = z.number().int().positive();
+export const FlowAssistChoiceSchema = z.object({
+  SelectionValue: z.string().min(1).max(1000).refine((value) => Boolean(value.trim())),
+  Display: z.string().min(1).max(2000).refine((value) => Boolean(value.trim())),
+}).strict();
+const FlowAssistChoicesSchema = z.array(FlowAssistChoiceSchema).min(1).max(500);
+
+function validateChoices(objectType: string, choices: { SelectionValue: string; Display: string }[] | undefined,
+  path: (string | number)[], context: z.RefinementCtx): void {
+  if (choices === undefined) return;
+  if (!['CFL', 'CFL_SELREQ'].includes(objectType)) {
+    context.addIssue({ code: 'custom', path: [...path, 'Choices'], message: 'Choices só pode ser enviado para CFL e CFL_SELREQ.' });
+    return;
+  }
+  const values = choices.map((choice) => choice.SelectionValue);
+  if (new Set(values).size !== values.length) {
+    context.addIssue({ code: 'custom', path: [...path, 'Choices'], message: 'SelectionValue duplicado nas opções CFL.' });
+  }
+}
 
 export const FlowAssistTargetSchema = z.object({
   IdProcessLineFlow: IdSchema,
@@ -9,6 +27,7 @@ export const FlowAssistTargetSchema = z.object({
   ObjectType: z.enum(['PROMPT', 'CFL', 'CFL_SELREQ']),
   Description: z.string(),
   ObjectDescription: z.string().nullable().optional(),
+  Choices: FlowAssistChoicesSchema.optional(),
 }).strict();
 
 const FlowAssistBaseSchema = z.object({
@@ -36,7 +55,7 @@ const FlowAssistBaseSchema = z.object({
 function validateSharedInput(input: {
   Instructions: string;
   KnowledgeConfiguration?: KnowledgeConfiguration;
-  Targets: { IdProcessLineFlow: number }[];
+  Targets: { IdProcessLineFlow: number; ObjectType?: string; Choices?: { SelectionValue: string; Display: string }[] }[];
   Messages: { IdMessage: number }[];
   Known?: { IdProcessLineFlow: number }[];
 }, context: z.RefinementCtx): void {
@@ -57,6 +76,7 @@ function validateSharedInput(input: {
       context.addIssue({ code: 'custom', path: ['KnowledgeConfiguration'], message: 'Knowledge Reference não autorizada.' });
     }
   }
+  input.Targets.forEach((target, index) => validateChoices(target.ObjectType ?? '', target.Choices, ['Targets', index], context));
 }
 
 export const FlowAssistPrefillInputSchema = FlowAssistBaseSchema.safeExtend({
@@ -89,6 +109,7 @@ const FlowAssistStepSchema = z.object({
   ObjectDescription: z.string().nullable().optional(),
   Resolved: z.boolean(),
   CurrentValue: z.string().nullable(),
+  Choices: FlowAssistChoicesSchema.optional(),
 }).strict();
 
 const FlowAssistV2BaseSchema = FlowAssistBaseSchema.safeExtend({
@@ -109,6 +130,7 @@ const FlowAssistV2BaseSchema = FlowAssistBaseSchema.safeExtend({
   const available = new Set(stepIds);
   if (candidates.some((id) => !available.has(id))) context.addIssue({ code: 'custom', path: ['Continuation', 'CandidateTargets'], message: 'Target candidato ausente do manifesto.' });
   if (!input.Continuation.Enabled && candidates.length) context.addIssue({ code: 'custom', path: ['Continuation'], message: 'Continuação desabilitada deve ter CandidateTargets vazio.' });
+  input.StepManifest.forEach((step, index) => validateChoices(step.ObjectType, step.Choices, ['StepManifest', index], context));
 });
 
 export const FlowAssistV2PrefillInputSchema = FlowAssistV2BaseSchema.safeExtend({

@@ -73,6 +73,8 @@ describe('ReceptionAgent', () => {
       expect(positions[index]).toBeGreaterThan(positions[index - 1]!);
     }
     expect(instructions).toContain(RECEPTION_AGENT_TECHNICAL_INSTRUCTIONS);
+    expect(instructions).toContain('Nunca use rótulos em linguagem natural, espaços ou acentos em Key.');
+    expect(instructions).toContain('ExpectedDeliveryDate');
     expect(instructions).toContain(RECEPTION_AGENT_GUARDRAILS);
     expect(instructions).toContain('A precedência entre instruções é: SYSTEM TECHNICAL INSTRUCTIONS > SYSTEM GUARDRAILS > COMPANY AGENT INSTRUCTIONS e KNOWLEDGE CONFIGURATION / KNOWLEDGE INSTRUCTIONS.');
     expect(instructions).toContain('RUNTIME CONTEXT não é uma camada de instruções: contém o estado e os fatos autoritativos do Turn.');

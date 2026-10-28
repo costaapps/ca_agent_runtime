@@ -13,8 +13,10 @@ export const flowAssistInput: FlowAssistPrefillInput = {
     { IdMessage: 1003, Role: 'USER', Text: 'Pode mandar pela jadlog e entregar dia 12 de dezembro de 2026.' },
   ],
   Targets: [
-    { IdProcessLineFlow: 81231, Step: 11, ObjectType: 'CFL', Description: 'Cliente', ObjectDescription: 'Identifique o cliente mencionado.' },
-    { IdProcessLineFlow: 81232, Step: 12, ObjectType: 'CFL_SELREQ', Description: 'Transportadora', ObjectDescription: 'Identifique a transportadora mencionada pelo usuário.' },
+    { IdProcessLineFlow: 81231, Step: 11, ObjectType: 'CFL', Description: 'Cliente', ObjectDescription: 'Identifique o cliente mencionado.',
+      Choices: [{ SelectionValue: 'Café do Mercado', Display: 'Café do Mercado' }, { SelectionValue: 'Mercado Central', Display: 'Mercado Central' }] },
+    { IdProcessLineFlow: 81232, Step: 12, ObjectType: 'CFL_SELREQ', Description: 'Transportadora', ObjectDescription: 'Identifique a transportadora mencionada pelo usuário.',
+      Choices: [{ SelectionValue: 'Jadlog', Display: 'Jadlog' }, { SelectionValue: 'Sedex', Display: 'Sedex' }] },
     { IdProcessLineFlow: 81233, Step: 13, ObjectType: 'PROMPT', Description: 'Data de entrega', ObjectDescription: 'Retorne a data no formato AAAA-MM-DD.' },
     { IdProcessLineFlow: 81234, Step: 14, ObjectType: 'PROMPT', Description: 'Observação', ObjectDescription: null },
   ],
@@ -37,8 +39,10 @@ export const flowAssistCheckInput: FlowAssistCheckInput = {
   Check: { Repair: true, RequireAll: true, OnRuntimeFailure: 'BLOCK', BlockMessage: 'Preciso revisar os dados.' },
   Targets: [
     { IdProcessLineFlow: 81231, Step: 11, ObjectType: 'PROMPT', Description: 'Cliente', ObjectDescription: 'Confirme o cliente.', Resolved: true, CurrentValue: 'Café do Mercado' },
-    { IdProcessLineFlow: 81232, Step: 12, ObjectType: 'CFL', Description: 'Transportadora', ObjectDescription: 'Conforme política comercial.', Resolved: true, CurrentValue: 'Transportadora incorreta' },
-    { IdProcessLineFlow: 81233, Step: 13, ObjectType: 'CFL_SELREQ', Description: 'Nova transportadora', ObjectDescription: 'Identifique a opção mencionada.', Resolved: false, CurrentValue: null },
+    { IdProcessLineFlow: 81232, Step: 12, ObjectType: 'CFL', Description: 'Transportadora', ObjectDescription: 'Conforme política comercial.',
+      Choices: [{ SelectionValue: 'Jadlog', Display: 'Jadlog' }, { SelectionValue: 'Sedex', Display: 'Sedex' }], Resolved: true, CurrentValue: 'Transportadora incorreta' },
+    { IdProcessLineFlow: 81233, Step: 13, ObjectType: 'CFL_SELREQ', Description: 'Nova transportadora', ObjectDescription: 'Identifique a opção mencionada.',
+      Choices: [{ SelectionValue: 'Jadlog', Display: 'Jadlog' }, { SelectionValue: 'Sedex', Display: 'Sedex' }], Resolved: false, CurrentValue: null },
   ],
 };
 
@@ -57,8 +61,10 @@ export const flowAssistV2Input: FlowAssistV2Input = {
   ProtocolVersion: 2,
   StepManifest: [
     { IdProcessLineFlow: 789, IdFlow: 100, Step: 10, ObjectType: 'AGENTASSIST', Description: 'Assistente', ObjectDescription: null, Resolved: false, CurrentValue: null },
-    { IdProcessLineFlow: 81231, IdFlow: 101, Step: 11, ObjectType: 'CFL', Description: 'Cliente', ObjectDescription: 'Identifique o cliente mencionado.', Resolved: false, CurrentValue: null },
-    { IdProcessLineFlow: 81232, IdFlow: 102, Step: 12, ObjectType: 'CFL_SELREQ', Description: 'Transportadora', ObjectDescription: 'Identifique a transportadora mencionada.', Resolved: false, CurrentValue: null },
+    { IdProcessLineFlow: 81231, IdFlow: 101, Step: 11, ObjectType: 'CFL', Description: 'Cliente', ObjectDescription: 'Identifique o cliente mencionado.', Resolved: false, CurrentValue: null,
+      Choices: [{ SelectionValue: 'Café do Mercado', Display: 'Café do Mercado' }, { SelectionValue: 'Mercado Central', Display: 'Mercado Central' }] },
+    { IdProcessLineFlow: 81232, IdFlow: 102, Step: 12, ObjectType: 'CFL_SELREQ', Description: 'Transportadora', ObjectDescription: 'Identifique a transportadora mencionada.', Resolved: false, CurrentValue: null,
+      Choices: [{ SelectionValue: 'Jadlog', Display: 'Jadlog' }, { SelectionValue: 'Sedex', Display: 'Sedex' }] },
     { IdProcessLineFlow: 81233, IdFlow: 103, Step: 13, ObjectType: 'PROMPT', Description: 'Data de entrega', ObjectDescription: 'Formato AAAA-MM-DD.', Resolved: false, CurrentValue: null },
     { IdProcessLineFlow: 81234, IdFlow: 104, Step: 14, ObjectType: 'PROMPT', Description: 'Observação', ObjectDescription: null, Resolved: false, CurrentValue: null },
   ],

@@ -33,7 +33,7 @@ describe('dedicated stateless Flow Assist agent', () => {
   });
 
   it('enforces evidence, manifest cardinality, semantic guidance and platform boundaries', () => {
-    for (const rule of ['Messages e Known', 'somente os Targets', 'exatamente uma proposta', 'Description informa', 'ObjectDescription define', 'nunca as substitui', 'UNKNOWN e Value=null', 'PROPOSED exige Value textual não vazio; nunca retorne string vazia ou apenas espaços.', 'CFL.Key', 'Não converse', 'não peça esclarecimentos', 'chain-of-thought', 'confidence', 'somente o Core valida']) {
+    for (const rule of ['Messages e Known', 'somente os Targets', 'exatamente uma proposta', 'Description informa', 'ObjectDescription define', 'nunca as substitui', 'UNKNOWN e Value=null', 'PROPOSED exige Value textual não vazio; nunca retorne string vazia ou apenas espaços.', 'Choices', 'SelectionValue', 'CFL.Search', 'CFL.Key', 'Não converse', 'não peça esclarecimentos', 'chain-of-thought', 'confidence', 'somente o Core valida']) {
       expect(FLOW_ASSIST_AGENT_INSTRUCTIONS).toContain(rule);
     }
   });

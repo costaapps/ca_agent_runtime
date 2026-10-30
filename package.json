@@ -1,6 +1,6 @@
 {
   "name": "ca-agent-runtime",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "Costa Apps PoC Agent Runtime",
   "type": "module",

@@ -46,6 +46,11 @@ describe('Flow Assist HTTP and structured output contracts', () => {
     { Targets: [{ ...flowAssistInput.Targets[0], Step: -1 }] },
     { Targets: [{ ...flowAssistInput.Targets[0], ObjectType: 'AUTO' }] },
     { Targets: [{ ...flowAssistInput.Targets[0], IdProcessLineFlow: 0 }] },
+    { Targets: [{ ...flowAssistInput.Targets[2], Choices: [{ SelectionValue: 'x', Display: 'X' }] }] },
+    { Targets: [{ ...flowAssistInput.Targets[0], Choices: [{ SelectionValue: 'x', Display: 'X', Key: 9 }] }] },
+    { Targets: [{ ...flowAssistInput.Targets[0], Choices: [
+      { SelectionValue: 'duplicate', Display: 'A' }, { SelectionValue: 'duplicate', Display: 'B' },
+    ] }] },
     { Known: [{ ...flowAssistInput.Known![0], Value: {} }] },
     { SessionUUID: 'not-allowed' }, { AgentContext: {} }, { KnowledgeConfiguration: {} },
   ])('rejects malformed transport or session/business configuration: %j', (overrides) => {

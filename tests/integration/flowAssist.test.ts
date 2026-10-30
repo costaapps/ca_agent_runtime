@@ -11,7 +11,7 @@ import { createFakeMcpServer } from '../../src/mcp/fakeMcpServer.js';
 import { MemoryRepository } from '../helpers/memoryRepository.js';
 import { MemorySessionRepository } from '../helpers/memorySessionRepository.js';
 import { flowAssistInput, flowAssistOutput } from '../helpers/flowAssist.js';
-import { flowAssistCheckInput } from '../helpers/flowAssist.js';
+import { flowAssistCheckInput, flowAssistV2Input } from '../helpers/flowAssist.js';
 import { configuredKnowledge } from '../helpers/knowledgeConfiguration.js';
 import { KnowledgeConfigurationSchema } from '../../src/api/contracts/knowledgeConfiguration.js';
 import { KnowledgeSearchService } from '../../src/knowledge/KnowledgeSearchService.js';
@@ -150,6 +150,20 @@ describe('HTTP -> controller -> runtime -> tool-free Agent with real SDK Runner'
     expect(state.findSession).not.toHaveBeenCalled();
     expect(state.listTools).not.toHaveBeenCalled();
     expect(state.callTool).not.toHaveBeenCalled();
+  });
+
+  it('accepts protocol v2, validates continuation proposals and persists the versioned contract', async () => {
+    const v2Output = { ...flowAssistOutput, NextAgentAssists: [] };
+    const state = setup(new AssistModel(v2Output));
+    await withServer(state.runtime, async (post) => {
+      const response = await post(flowAssistV2Input);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(FlowAssistOutputSchema.parse(body)).toMatchObject({ Success: true, ProtocolVersion: 2, ...v2Output });
+    });
+    expect(state.model.requests).toHaveLength(1);
+    expect(state.model.requests[0]?.systemInstructions).toContain('StepManifest');
+    expect(JSON.parse(state.repository.executions[0]!.data.RuntimeConfigJSON!)).toMatchObject({ ProtocolVersion: 2 });
   });
 
   it('rejects an incoherent manifest at HTTP boundary before persistence or inference', async () => {
